@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Login — CivicFix Bengaluru</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+    <header class="admin-nav">
+        <div class="nav-brand">
+            <div class="brand-logo brand-logo-admin">🛡️</div>
+            <div>
+                <h1>CivicFix Administration</h1>
+                <p>Municipal Oversight & Grievance Control</p>
+            </div>
+        </div>
+        <div class="nav-user">
+            <a href="/" class="btn-nav-secondary">← Back to Home</a>
+        </div>
+    </header>
+
+    <div class="auth-page">
+        <div class="auth-card">
+
+            <div class="auth-header">
+                <div class="logo-badge" style="background:#fffbeb; color:#b45309; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.15);">🛡️</div>
+                <h1>Admin Portal Login</h1>
+                <p>Authorized Municipal Administrators Only</p>
+            </div>
+
+            {% if error %}
+                <div class="alert-flash alert-danger">
+                    <span>⚠️</span>
+                    <span>{{ error }}</span>
+                </div>
+            {% endif %}
+
+            {% if message %}
+                <div class="alert-flash alert-success">
+                    <span>✓</span>
+                    <span>{{ message }}</span>
+                </div>
+            {% endif %}
+
+            <form action="/admin-login" method="POST">
+
+                <div class="form-group">
+                    <label for="email">Administrator Email</label>
+                    <input
+                        type="email"
+                        id="email"
+                        name="email"
+                        class="form-control"
+                        placeholder="admin@civicfix.com"
+                        required
+                        autofocus
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Admin Password</label>
+                    <input
+                        type="password"
+                        id="password"
+                        name="password"
+                        class="form-control"
+                        placeholder="Enter admin password"
+                        required
+                    >
+                </div>
+
+                <button type="submit" class="btn-primary" style="background:#1e293b;">
+                    Login as Administrator
+                </button>
+
+            </form>
+
+            <div class="auth-footer">
+                <a href="/" style="color:var(--text-muted);">← Return to Public Homepage</a>
+            </div>
+
+        </div>
+    </div>
+
+    <footer class="site-footer">
+        © 2026 CivicFix Bengaluru. Official Municipal Civic Redressal Portal.
+    </footer>
+
+</body>
+</html>

@@ -1,0 +1,3225 @@
+from flask import Flask, render_template, request, redirect, session, send_from_directory
+
+from werkzeug.security import generate_password_hash, check_password_hash
+
+from werkzeug.utils import secure_filename
+
+import mysql.connector
+
+import re
+
+import smtplib
+
+import os
+
+import secrets
+
+from datetime import datetime, timedelta
+
+from email.message import EmailMessage
+
+from dotenv import load_dotenv
+
+from ai_engine import analyze_complaint
+
+
+
+load_dotenv()
+
+
+
+app = Flask(__name__)
+
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "civicfix-development-secret")
+
+app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
+
+
+
+UPLOAD_FOLDER = "uploads"
+
+ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
+
+
+
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+
+
+CIVICFIX_EMAIL = os.getenv("CIVICFIX_EMAIL")
+
+CIVICFIX_APP_PASSWORD = os.getenv("CIVICFIX_APP_PASSWORD")
+
+
+
+ALLOWED_CATEGORIES = {
+
+          "Garbage & Waste",
+
+          "Roads & Potholes",
+
+          "Streetlights",
+
+          "Water Supply",
+
+          "Sewerage",
+
+          "Waterlogging & Drainage"
+
+}
+
+
+
+def get_db_connection():
+
+          return mysql.connector.connect(
+
+                    host="127.0.0.1",
+
+                    port=3306,
+
+                    user="civicfix_app",
+
+                    password="CivicFix@2026",
+
+                    database="civicfix"
+
+          )
+
+
+
+
+
+def allowed_file(filename):
+
+          if not filename or "." not in filename:
+
+                    return False
+
+
+
+          extension = filename.rsplit(".", 1)[1].lower()
+
+          return extension in {"png", "jpg", "jpeg", "gif", "webp","jfif",}
+
+
+
+
+
+def send_otp_email(receiver_email, otp):
+
+          if not CIVICFIX_EMAIL or not CIVICFIX_APP_PASSWORD:
+
+                    raise Exception("Email configuration is missing. Check the .env file.")
+
+
+
+          message = EmailMessage()
+
+          message["Subject"] = "CivicFix OTP Verification"
+
+          message["From"] = CIVICFIX_EMAIL
+
+          message["To"] = receiver_email
+
+          message.set_content(
+
+                    f"""Hello,
+
+
+
+Thank you for registering with CivicFix Bengaluru.
+
+
+
+Your OTP for account verification is:
+
+
+
+{otp}
+
+
+
+This OTP is valid for 5 minutes.
+
+
+
+If you did not create this account, please ignore this email.
+
+
+
+Regards,
+
+CivicFix Bengaluru
+
+"""
+
+          )
+
+
+
+          with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+
+                    smtp.login(CIVICFIX_EMAIL, CIVICFIX_APP_PASSWORD)
+
+                    smtp.send_message(message)
+
+
+
+@app.route("/")
+
+def home():
+
+          return render_template("index.html")
+
+
+
+@app.route("/citizen-login", methods=["GET", "POST"])
+
+def citizen_login():
+
+          if request.method == "POST":
+
+                    email = request.form.get("email", "").strip().lower()
+
+                    password = request.form.get("password", "")
+
+
+
+                    try:
+
+                              db = get_db_connection()
+
+                              cursor = db.cursor(dictionary=True)
+
+
+
+                              cursor.execute(
+
+                                        """
+
+                                        SELECT id, full_name, email, password_hash, role, is_verified
+
+                                        FROM users
+
+                                        WHERE email = %s AND role = 'citizen'
+
+                                        LIMIT 1
+
+                                        """,
+
+                                        (email,)
+
+                              )
+
+
+
+                              user = cursor.fetchone()
+
+                              cursor.close()
+
+                              db.close()
+
+
+
+                              if user is None:
+
+                                        return """
+
+                                        <h2>Invalid Login</h2>
+
+                                        <p>Invalid email or password.</p>
+
+                                        <a href="/citizen-login">Try Again</a>
+
+                                        """
+
+
+
+                              if not check_password_hash(user["password_hash"], password):
+
+                                        return """
+
+                                        <h2>Invalid Login</h2>
+
+                                        <p>Invalid email or password.</p>
+
+                                        <a href="/citizen-login">Try Again</a>
+
+                                        """
+
+
+
+                              if not user["is_verified"]:
+
+                                        return """
+
+                                        <h2>Account Not Verified</h2>
+
+                                        <p>Please verify your OTP before logging in.</p>
+
+                                        <a href="/citizen-register">Go to Registration</a>
+
+                                        """
+
+
+
+                              session["citizen_id"] = user["id"]
+
+                              session["citizen_name"] = user["full_name"]
+
+                              session["citizen_email"] = user["email"]
+
+
+
+                              return redirect("/citizen-dashboard")
+
+
+
+                    except Exception as e:
+
+                              print("CITIZEN LOGIN ERROR:", e)
+
+                              return """
+
+                              <h2>Login Failed</h2>
+
+                              <p>Something went wrong. Please try again.</p>
+
+                              <a href="/citizen-login">Go Back</a>
+
+                              """
+
+
+
+          return render_template("citizen_login.html")
+
+
+
+@app.route("/citizen-register", methods=["GET", "POST"])
+
+def citizen_register():
+
+          if request.method == "POST":
+
+                    full_name = request.form.get("full_name", "").strip()
+
+                    email = request.form.get("email", "").strip().lower()
+
+                    phone = request.form.get("phone", "").strip()
+
+                    password = request.form.get("password", "")
+
+                    confirm_password = request.form.get("confirm_password", "")
+
+
+
+                    if password != confirm_password:
+
+                              return """
+
+                              <script>
+
+                                        alert("Passwords do not match.");
+
+                                        window\.history.back();
+
+                              </script>
+
+                              """
+
+
+
+                    if len(password) < 6:
+
+                              return """
+
+                              <script>
+
+                                        alert("Password must be at least 6 characters long.");
+
+                                        window\.history.back();
+
+                              </script>
+
+                              """
+
+
+
+                    if not re.search(r"[A-Z]", password):
+
+                              return """
+
+                              <script>
+
+                                        alert("Password must contain at least one uppercase letter.");
+
+                                        window\.history.back();
+
+                              </script>
+
+                              """
+
+
+
+                    if not re.search(r"[^A-Za-z0-9]", password):
+
+                              return """
+
+                              <script>
+
+                                        alert("Password must contain at least one special symbol.");
+
+                                        window\.history.back();
+
+                              </script>
+
+                              """
+
+
+
+                    password_hash = generate_password_hash(password)
+
+
+
+                    db = None
+
+                    cursor = None
+
+
+
+                    try:
+
+                              db = get_db_connection()
+
+                              cursor = db.cursor(dictionary=True)
+
+
+
+                              cursor.execute(
+
+                                        """
+
+                                        SELECT id
+
+                                        FROM users
+
+                                        WHERE email = %s OR phone = %s
+
+                                        LIMIT 1
+
+                                        """,
+
+                                        (email, phone)
+
+                              )
+
+
+
+                              existing_user = cursor.fetchone()
+
+
+
+                              if existing_user:
+
+                                        cursor.close()
+
+                                        db.close()
+
+                                        return """
+
+                                        <script>
+
+                                                  alert("Email or phone number is already registered.");
+
+                                                  window\.location.href="/citizen-register";
+
+                                        </script>
+
+                                        """
+
+
+
+                              cursor.execute(
+
+                                        """
+
+                                        DELETE FROM pending_registrations
+
+                                        WHERE email = %s OR phone = %s
+
+                                        """,
+
+                                        (email, phone)
+
+                              )
+
+
+
+                              otp = str(secrets.randbelow(900000) + 100000)
+
+                              expires_at = datetime.now() + timedelta(minutes=5)
+
+
+
+                              cursor.execute(
+
+                                        """
+
+                                        INSERT INTO pending_registrations
+
+                                        (
+
+                                                  full_name,
+
+                                                  email,
+
+                                                  phone,
+
+                                                  password_hash,
+
+                                                  otp_code,
+
+                                                  expires_at,
+
+                                                  attempts
+
+                                        )
+
+                                        VALUES
+
+                                        (%s, %s, %s, %s, %s, %s, 0)
+
+                                        """,
+
+                                        (
+
+                                                  full_name,
+
+                                                  email,
+
+                                                  phone,
+
+                                                  password_hash,
+
+                                                  otp,
+
+                                                  expires_at
+
+                                        )
+
+                              )
+
+
+
+                              db.commit()
+
+                              cursor.close()
+
+                              db.close()
+
+
+
+                              try:
+
+                                        send_otp_email(email, otp)
+
+                              except Exception as email_error:
+
+                                        print("EMAIL ERROR:", email_error)
+
+
+
+                                        cleanup_db = get_db_connection()
+
+                                        cleanup_cursor = cleanup_db.cursor()
+
+                                        cleanup_cursor.execute(
+
+                                                  "DELETE FROM pending_registrations WHERE email = %s",
+
+                                                  (email,)
+
+                                        )
+
+                                        cleanup_db.commit()
+
+                                        cleanup_cursor.close()
+
+                                        cleanup_db.close()
+
+
+
+                                        return """
+
+                                        <script>
+
+                                                  alert("OTP email could not be sent. Please check your email configuration.");
+
+                                                  window\.location.href="/citizen-register";
+
+                                        </script>
+
+                                        """
+
+
+
+                              return render_template("verify_otp.html", email=email)
+
+
+
+                    except mysql.connector.IntegrityError:
+
+                              if db:
+
+                                        db.rollback()
+
+                              if cursor:
+
+                                        cursor.close()
+
+                              if db:
+
+                                        db.close()
+
+
+
+                              return """
+
+                              <script>
+
+                                        alert("Email or phone number is already registered.");
+
+                                        window\.location.href="/citizen-register";
+
+                              </script>
+
+                              """
+
+
+
+                    except Exception as e:
+
+                              print("REGISTRATION ERROR:", e)
+
+
+
+                              if db:
+
+                                        try:
+
+                                                  db.rollback()
+
+                                        except:
+
+                                                  pass
+
+
+
+                              if cursor:
+
+                                        try:
+
+                                                  cursor.close()
+
+                                        except:
+
+                                                  pass
+
+
+
+                              if db:
+
+                                        try:
+
+                                                  db.close()
+
+                                        except:
+
+                                                  pass
+
+
+
+                              return """
+
+                              <h2>Registration Failed</h2>
+
+                              <p>Something went wrong. Please try again.</p>
+
+                              <a href="/citizen-register">Try Again</a>
+
+                              """
+
+
+
+          return render_template("citizen_register.html")
+
+
+
+@app.route("/verify-otp", methods=["POST"])
+
+def verify_otp():
+
+          email = request.form.get("email", "").strip().lower()
+
+          entered_otp = request.form.get("otp", "").strip()
+
+
+
+          db = None
+
+          cursor = None
+
+
+
+          try:
+
+                    db = get_db_connection()
+
+                    cursor = db.cursor(dictionary=True)
+
+
+
+                    cursor.execute(
+
+                              """
+
+                              SELECT
+
+                                        id,
+
+                                        full_name,
+
+                                        email,
+
+                                        phone,
+
+                                        password_hash,
+
+                                        otp_code,
+
+                                        expires_at,
+
+                                        attempts
+
+                              FROM pending_registrations
+
+                              WHERE email = %s
+
+                              LIMIT 1
+
+                              """,
+
+                              (email,)
+
+                    )
+
+
+
+                    pending = cursor.fetchone()
+
+
+
+                    if pending is None:
+
+                              cursor.close()
+
+                              db.close()
+
+
+
+                              return """
+
+                              <h2>Registration Not Found</h2>
+
+                              <p>Your temporary registration could not be found.</p>
+
+                              <a href="/citizen-register">Register Again</a>
+
+                              """
+
+
+
+                    if pending["attempts"] >= 5:
+
+                              cursor.execute(
+
+                                        "DELETE FROM pending_registrations WHERE id = %s",
+
+                                        (pending["id"],)
+
+                              )
+
+                              db.commit()
+
+                              cursor.close()
+
+                              db.close()
+
+
+
+                              return """
+
+                              <h2>Too Many Attempts</h2>
+
+                              <p>Your temporary registration has been removed.</p>
+
+                              <a href="/citizen-register">Register Again</a>
+
+                              """
+
+
+
+                    if datetime.now() > pending["expires_at"]:
+
+                              cursor.execute(
+
+                                        "DELETE FROM pending_registrations WHERE id = %s",
+
+                                        (pending["id"],)
+
+                              )
+
+                              db.commit()
+
+                              cursor.close()
+
+                              db.close()
+
+
+
+                              return """
+
+                              <h2>OTP Expired</h2>
+
+                              <p>Your temporary registration has expired.</p>
+
+                              <a href="/citizen-register">Register Again</a>
+
+                              """
+
+
+
+                    entered_otp = str(entered_otp).strip()
+
+                    stored_otp = str(pending["otp_code"]).strip()
+
+
+
+                    if not entered_otp.isdigit() or len(entered_otp) != 6:
+
+                              cursor.execute(
+
+                                        """
+
+                                        UPDATE pending_registrations
+
+                                        SET attempts = attempts + 1
+
+                                        WHERE id = %s
+
+                                        """,
+
+                                        (pending["id"],)
+
+                              )
+
+                              db.commit()
+
+                              cursor.close()
+
+                              db.close()
+
+
+
+                              return """
+
+                              <h2>Invalid OTP</h2>
+
+                              <p>Please enter the 6-digit OTP from your latest email.</p>
+
+                              <a href="/citizen-register">Register Again</a>
+
+                              """
+
+
+
+                    if entered_otp != stored_otp:
+
+                              cursor.execute(
+
+                                        """
+
+                                        UPDATE pending_registrations
+
+                                        SET attempts = attempts + 1
+
+                                        WHERE id = %s
+
+                                        """,
+
+                                        (pending["id"],)
+
+                              )
+
+                              db.commit()
+
+                              cursor.close()
+
+                              db.close()
+
+
+
+                              return """
+
+                              <h2>Invalid OTP</h2>
+
+                              <p>The OTP you entered is incorrect.</p>
+
+                              <a href="/citizen-register">Register Again</a>
+
+                              """
+
+
+
+                    cursor.execute(
+
+                              """
+
+                              INSERT INTO users
+
+                              (
+
+                                        full_name,
+
+                                        email,
+
+                                        phone,
+
+                                        password_hash,
+
+                                        role,
+
+                                        is_verified
+
+                              )
+
+                              VALUES
+
+                              (%s, %s, %s, %s, 'citizen', TRUE)
+
+                              """,
+
+                              (
+
+                                        pending["full_name"],
+
+                                        pending["email"],
+
+                                        pending["phone"],
+
+                                        pending["password_hash"]
+
+                              )
+
+                    )
+
+
+
+                    cursor.execute(
+
+                              "DELETE FROM pending_registrations WHERE id = %s",
+
+                              (pending["id"],)
+
+                    )
+
+
+
+                    db.commit()
+
+                    cursor.close()
+
+                    db.close()
+
+
+
+                    return """
+
+                    <h2>OTP Verified Successfully! 🎉</h2>
+
+                    <p>Your CivicFix account has been created.</p>
+
+                    <p>You can now log in.</p>
+
+                    <a href="/citizen-login">Go to Citizen Login</a>
+
+                    """
+
+
+
+          except mysql.connector.IntegrityError:
+
+                    if db:
+
+                              db.rollback()
+
+
+
+                    if cursor:
+
+                              cursor.close()
+
+
+
+                    if db:
+
+                              db.close()
+
+
+
+                    return """
+
+                    <h2>Registration Error</h2>
+
+                    <p>Email or phone number is already registered.</p>
+
+                    <a href="/citizen-register">Register Again</a>
+
+                    """
+
+
+
+          except Exception as e:
+
+                    print("OTP ERROR:", e)
+
+
+
+                    if db:
+
+                              try:
+
+                                        db.rollback()
+
+                              except:
+
+                                        pass
+
+
+
+                    if cursor:
+
+                              try:
+
+                                        cursor.close()
+
+                              except:
+
+                                        pass
+
+
+
+                    if db:
+
+                              try:
+
+                                        db.close()
+
+                              except:
+
+                                        pass
+
+
+
+                    return """
+
+                    <h2>OTP Verification Failed</h2>
+
+                    <p>Something went wrong.</p>
+
+                    <a href="/citizen-register">Register Again</a>
+
+                    """
+
+
+
+@app.route("/citizen-dashboard")
+
+def citizen_dashboard():
+
+          if "citizen_id" not in session:
+
+                    return redirect("/citizen-login")
+
+
+
+          db = None
+
+          cursor = None
+
+
+
+          try:
+
+                    db = get_db_connection()
+
+                    cursor = db.cursor(dictionary=True)
+
+
+
+                    cursor.execute(
+
+                              """
+
+                              SELECT complaint_id, category, description, location,
+
+                                                 status, department, proof_status, created_at
+
+                              FROM complaints
+
+                              WHERE citizen_id = %s
+
+                              ORDER BY created_at DESC
+
+                              """,
+
+                              (session["citizen_id"],)
+
+                    )
+
+
+
+                    complaints = cursor.fetchall()
+
+
+
+                    return render_template(
+
+                              "citizen_dashboard.html",
+
+                              complaints=complaints
+
+                    )
+
+
+
+          except Exception as e:
+
+                    print("CITIZEN DASHBOARD ERROR:", e)
+
+                    return render_template(
+
+                              "citizen_dashboard.html",
+
+                              complaints=[]
+
+                    )
+
+
+
+          finally:
+
+                    if cursor:
+
+                              cursor.close()
+
+                    if db:
+
+                              db.close()
+
+
+
+def build_suggested_solution(category, description):
+          """Return practical first-step guidance; staff must verify before action."""
+          text = (str(category or "") + " " + str(description or "")).lower()
+          if any(x in text for x in ["live wire", "electric shock", "sparking", "exposed wire", "fallen wire"]):
+                    return "Safety first: keep people away and do not touch the wire or nearby water. Request urgent inspection by the electricity team; treat the area as dangerous until secured."
+          if any(x in text for x in ["flood", "flooding", "waterlogging", "water logged", "storm drain", "blocked drain", "overflowing drain"]):
+                    return "Inspect the affected stretch and nearby storm-water drains, clear blockage if safe, and arrange pumping or barricading where needed. Escalate immediately if homes, roads, or electrical equipment are at risk."
+          if any(x in text for x in ["pothole", "road cave", "road damage", "broken road", "open manhole"]):
+                    return "Mark or barricade the hazard first, especially at night. Arrange a site inspection and repair; secure any open manhole immediately and verify the repaired area before closing the complaint."
+          if any(x in text for x in ["sewage", "sewer", "drainage smell", "manhole overflow", "sewer overflow"]):
+                    return "Keep people away from exposed sewage and avoid direct contact. Inspect the sewer line/manhole, clear the blockage or repair the damaged section, disinfect the affected area, and verify flow has returned to normal."
+          if any(x in text for x in ["garbage", "waste", "dump", "rubbish", "litter", "trash"]):
+                    return "Arrange collection of the accumulated waste, clean the affected spot, and check whether a bin or regular pickup is needed to prevent recurrence. Record completion with an after-cleaning photo."
+          if any(x in text for x in ["water supply", "no water", "water outage", "water cut", "pipe leak", "leaking pipe", "low pressure"]):
+                    return "Inspect the local supply line and valves, identify any leak or interruption, and repair or restore supply. If service cannot be restored promptly, communicate the expected timeline and available temporary supply."
+          if any(x in text for x in ["streetlight", "street light", "electricity", "power outage", "lamp not working", "light not working"]):
+                    return "Inspect the streetlight, wiring, and power connection. Isolate unsafe electrical equipment before repair, replace faulty components, and test the light after restoration."
+          return "Recommended next step: have the responsible department inspect the reported location, confirm the cause, take the safest appropriate corrective action, and upload completion proof for verification. This suggestion is a starting point and must be checked by staff."
+
+
+@app.route("/submit-complaint", methods=["POST"])
+
+
+
+@app.route("/submit-complaint", methods=["POST"])
+
+def submit_complaint():
+
+          if "citizen_id" not in session:
+
+                    return redirect("/citizen-login")
+
+
+
+          image = request.files.get("image")
+
+          category = request.form.get("category", "").strip()
+
+          description = request.form.get("description", "").strip()
+
+          location = request.form.get("location", "").strip()
+
+
+
+          if not image or image.filename == "":
+
+                    return """
+
+                    <h2>Complaint Submission Failed</h2>
+
+                    <p>Please upload an image.</p>
+
+                    <a href="/citizen-dashboard">Go Back</a>
+
+                    """
+
+
+
+          if not allowed_file(image.filename):
+
+                    return """
+
+                    <h2>Complaint Submission Failed</h2>
+
+                    <p>Please upload a valid image file.</p>
+
+                    <a href="/citizen-dashboard">Go Back</a>
+
+                    """
+
+
+
+          if category not in ALLOWED_CATEGORIES:
+
+                    return """
+
+                    <h2>Complaint Submission Failed</h2>
+
+                    <p>Please select a valid complaint category.</p>
+
+                    <a href="/citizen-dashboard">Go Back</a>
+
+                    """
+
+
+
+          if not description:
+
+                    return """
+
+                    <h2>Complaint Submission Failed</h2>
+
+                    <p>Please describe the problem.</p>
+
+                    <a href="/citizen-dashboard">Go Back</a>
+
+                    """
+
+
+
+          if not location:
+
+                    return """
+
+                    <h2>Complaint Submission Failed</h2>
+
+                    <p>Please enter the complaint location.</p>
+
+                    <a href="/citizen-dashboard">Go Back</a>
+
+                    """
+
+
+
+          # AI prediction
+
+          ai_result = analyze_complaint(category, description)
+
+
+
+          ai_department = ai_result["department"]
+
+          ai_confidence = ai_result["confidence"]
+
+          ai_priority = ai_result["priority"]
+
+          ai_priority_score = ai_result["priority_score"]
+
+          ai_reason = ai_result["reason"]
+          suggested_solution = ai_result.get("suggested_solution") or build_suggested_solution(category, description)
+
+          review_required = ai_result.get("review_required", False)
+
+
+
+          assigned_department = None if review_required else ai_department
+
+          complaint_status = "Needs Review" if review_required else "Assigned"
+
+          assignment_source = "Needs Review" if review_required else "AI"
+
+
+
+          extension = image.filename.rsplit(".", 1)[1].lower()
+
+          filename = f"{secrets.token_hex(16)}.{extension}"
+
+          image_path = os.path.join(UPLOAD_FOLDER, filename)
+
+
+
+          complaint_id = (
+
+                    f"CF{datetime.now().strftime('%Y%m%d')}"
+
+                    f"{secrets.randbelow(9000) + 1000}"
+
+          )
+
+
+
+          db = None
+
+          cursor = None
+
+
+
+          try:
+
+                    image.save(image_path)
+
+
+
+                    db = get_db_connection()
+
+                    cursor = db.cursor()
+
+
+
+                    cursor.execute(
+
+                              """
+
+                              INSERT INTO complaints
+
+                              (
+
+                                        complaint_id,
+
+                                        citizen_id,
+
+                                        category,
+
+                                        description,
+
+                                        image_path,
+
+                                        location,
+
+                                        status,
+
+                                        department,
+
+                                        ai_department,
+
+                                        ai_department_confidence,
+
+                                        ai_priority,
+
+                                        ai_priority_score,
+
+                                        ai_reason,
+
+                                        ai_suggested_solution,
+
+                                        assignment_source
+
+                              )
+
+                              VALUES (
+
+          %s, %s, %s, %s, %s, %s,
+
+          %s, %s, %s, %s, %s, %s, %s, %s, %s
+
+)
+
+                              """,
+
+                              (
+
+          complaint_id,
+
+          session["citizen_id"],
+
+          category,
+
+          description,
+
+          image_path,
+
+          location,
+
+          complaint_status,
+
+          assigned_department,
+
+          ai_department,
+
+          ai_confidence,
+
+          ai_priority,
+
+          ai_priority_score,
+
+          ai_reason,
+
+          suggested_solution,
+
+          assignment_source,
+
+)
+
+                    )
+
+
+
+                    db.commit()
+
+
+
+                    return f"""
+
+                    <h2>Complaint Submitted Successfully!</h2>
+
+<p>
+
+          Your complaint has been registered.
+
+          Status: <strong>{complaint_status}</strong>
+
+</p>                    <p><strong>Complaint ID:</strong> {complaint_id}</p>
+
+<p><strong>AI Recommendation:</strong> {ai_department}</p>
+
+<p><strong>Assigned Department:</strong> {assigned_department or "Pending admin review"}</p>                    <p><strong>AI Priority:</strong> {ai_priority}</p>
+
+                    <p><strong>Priority Score:</strong> {ai_priority_score}/100</p>
+
+                    <p><strong>AI Confidence Indicator:</strong> {ai_confidence}</p>
+
+                    <p><strong>AI Explanation:</strong> {ai_reason}</p>
+                    <p><strong>AI Suggested Solution:</strong> {suggested_solution}</p>
+                    <p><small>This is an AI-assisted suggestion. The responsible department must verify the site and decide the actual work.</small></p>
+
+
+                    <a href="/citizen-dashboard">Back to Dashboard</a>
+
+                    """
+
+
+
+          except Exception as e:
+
+                    if db:
+
+                              db.rollback()
+
+
+
+                    print("COMPLAINT ERROR:", e)
+
+
+
+                    return """
+
+                    <h2>Complaint Submission Failed</h2>
+
+                    <p>Something went wrong while saving your complaint.</p>
+
+                    <a href="/citizen-dashboard">Try Again</a>
+
+                    """
+
+
+
+          finally:
+
+                    if cursor:
+
+                              cursor.close()
+
+                    if db:
+
+                              db.close()
+
+@app.route("/admin-login", methods=["GET", "POST"])
+
+def admin_login():
+
+          if request.method == "POST":
+
+                    email = request.form.get("email", "").strip().lower()
+
+                    password = request.form.get("password", "")
+
+
+
+                    try:
+
+                              db = get_db_connection()
+
+                              cursor = db.cursor(dictionary=True)
+
+
+
+                              cursor.execute(
+
+                                        """
+
+                                        SELECT id, full_name, email, password_hash, role, is_verified
+
+                                        FROM users
+
+                                        WHERE email = %s
+
+                                        AND role = 'admin'
+
+                                        LIMIT 1
+
+                                        """,
+
+                                        (email,)
+
+                              )
+
+
+
+                              admin = cursor.fetchone()
+
+                              cursor.close()
+
+                              db.close()
+
+
+
+                              if admin is None:
+
+                                        return """
+
+                                        <h2>Invalid Admin Login</h2>
+
+                                        <p>Invalid email or password.</p>
+
+                                        <a href="/admin-login">Try Again</a>
+
+                                        """
+
+
+
+                              if not check_password_hash(admin["password_hash"], password):
+
+                                        return """
+
+                                        <h2>Invalid Admin Login</h2>
+
+                                        <p>Invalid email or password.</p>
+
+                                        <a href="/admin-login">Try Again</a>
+
+                                        """
+
+
+
+                              if not admin["is_verified"]:
+
+                                        return """
+
+                                        <h2>Admin Account Not Verified</h2>
+
+                                        <p>This admin account is not verified.</p>
+
+                                        <a href="/admin-login">Try Again</a>
+
+                                        """
+
+
+
+                              session["admin_id"] = admin["id"]
+
+                              session["admin_name"] = admin["full_name"]
+
+                              session["admin_email"] = admin["email"]
+
+
+
+                              return redirect("/admin-dashboard")
+
+
+
+                    except Exception as e:
+
+                              print("ADMIN LOGIN ERROR:", e)
+
+
+
+                              return """
+
+                              <h2>Admin Login Failed</h2>
+
+                              <p>Something went wrong. Please try again.</p>
+
+                              <a href="/admin-login">Go Back</a>
+
+                              """
+
+
+
+          return render_template("admin_login.html")
+
+
+
+@app.route("/admin-assign", methods=["POST"])
+
+def admin_assign():
+
+          if "admin_id" not in session:
+
+                    return redirect("/admin-login")
+
+
+
+          complaint_id = request.form.get("complaint_id", "").strip()
+
+          department = request.form.get("department", "").strip()
+
+
+
+          allowed_departments = {
+
+                    "BBMP Solid Waste",
+
+                    "BBMP Roads",
+
+                    "BBMP Electrical",
+
+                    "BWSSB Water",
+
+                    "BWSSB Sewerage",
+
+                    "BBMP Storm Water"
+
+          }
+
+
+
+          if not complaint_id or department not in allowed_departments:
+
+                    return """
+
+                    <h2>Assignment Failed</h2>
+
+                    <p>Please select a valid department.</p>
+
+                    <a href="/admin-dashboard">Back to Admin Dashboard</a>
+
+                    """
+
+
+
+          db = None
+
+          cursor = None
+
+
+
+          try:
+
+                    db = get_db_connection()
+
+                    cursor = db.cursor()
+
+
+
+                    cursor.execute(
+
+                              """
+
+                              UPDATE complaints
+
+                              SET department = %s,
+
+                                        status = 'Assigned',
+                                        assignment_source = 'Admin'
+                              WHERE complaint_id = %s
+
+                              """,
+
+                              (department, complaint_id)
+
+                    )
+
+
+
+                    db.commit()
+
+
+
+                    if cursor.rowcount == 0:
+
+                              cursor.close()
+
+                              db.close()
+
+                              return """
+
+                              <h2>Assignment Failed</h2>
+
+                              <p>Complaint not found.</p>
+
+                              <a href="/admin-dashboard">Back to Admin Dashboard</a>
+
+                              """
+
+
+
+                    cursor.close()
+
+                    db.close()
+
+                    return redirect("/admin-dashboard")
+
+
+
+          except Exception as e:
+
+                    print("ADMIN ASSIGN ERROR:", e)
+
+
+
+                    if cursor:
+
+                              cursor.close()
+
+                    if db:
+
+                              db.close()
+
+
+
+                    return """
+
+                    <h2>Assignment Failed</h2>
+
+                    <p>Something went wrong while assigning the complaint.</p>
+
+                    <a href="/admin-dashboard">Back to Admin Dashboard</a>
+
+                    """
+
+
+
+@app.route("/admin-dashboard")
+
+@app.route("/admin-dashboard")
+
+def admin_dashboard():
+
+          if "admin_id" not in session:
+
+                    return redirect("/admin-login")
+
+
+
+          db = None
+
+          cursor = None
+
+          try:
+
+                    db = get_db_connection()
+
+                    cursor = db.cursor(dictionary=True)
+
+                    cursor.execute("""
+
+                              SELECT
+
+                                        c.id, c.complaint_id, c.category, c.description,
+
+                                        c.image_path, c.location, c.status, c.department,
+
+                                        c.resolution_proof, c.proof_status, c.created_at,
+
+                                        c.ai_department, c.ai_department_confidence,
+
+                                        c.ai_priority, c.ai_priority_score, c.ai_reason,
+                                        c.ai_suggested_solution,
+
+                                        c.assignment_source,
+
+                                        u.full_name AS citizen_name,
+
+                                        u.email AS citizen_email, u.phone AS citizen_phone
+
+                              FROM complaints c
+
+                              JOIN users u ON c.citizen_id = u.id
+
+                              ORDER BY c.created_at DESC
+
+                    """)
+
+                    complaints = cursor.fetchall()
+
+                    cursor.close()
+
+                    db.close()
+
+                    db = cursor = None
+
+
+
+                    rows = ""
+
+                    department_options = [
+
+                              "BBMP Solid Waste", "BBMP Roads", "BBMP Electrical",
+
+                              "BWSSB Water", "BWSSB Sewerage", "BBMP Storm Water"
+
+                    ]
+
+
+
+                    for c in complaints:
+
+                              options = '<option value="">Select Department</option>'
+
+                              for dept in department_options:
+
+                                        selected = "selected" if c["department"] == dept else ""
+
+                                        options += f'<option value="{dept}" {selected}>{dept}</option>'
+
+
+
+                              proof_cell = "No proof uploaded"
+
+                              if c["resolution_proof"]:
+
+                                        proof_cell = f'<a href="/admin-view-proof/{c["complaint_id"]}" target="_blank">View Proof</a>'
+
+
+
+                              verification_cell = c["proof_status"] or "Pending"
+
+                              if c["resolution_proof"] and c["proof_status"] == "Pending":
+
+                                        verification_cell = f"""
+
+                                                  <div>{proof_cell}</div>
+
+                                                  <form action="/admin-verify-proof" method="POST" style="margin-top:8px;">
+
+                                                            <input type="hidden" name="complaint_id" value="{c['complaint_id']}">
+
+                                                            <button type="submit">Verify Proof</button>
+
+                                                  </form>
+
+                                                  <form action="/admin-reject-proof" method="POST" style="margin-top:6px;">
+
+                                                            <input type="hidden" name="complaint_id" value="{c['complaint_id']}">
+
+                                                            <button type="submit" class="reject-button">Reject Proof</button>
+
+                                                  </form>
+
+                                        """
+
+                              elif c["resolution_proof"]:
+
+                                        verification_cell = f'{proof_cell}<br><strong>{c["proof_status"] or "Pending"}</strong>'
+
+
+
+                              ai_department = c.get("ai_department") or "Not available"
+
+                              ai_confidence = c.get("ai_department_confidence")
+
+                              ai_confidence_text = f"{ai_confidence}%" if ai_confidence is not None else "N/A"
+
+                              ai_priority = c.get("ai_priority") or "N/A"
+
+                              ai_score = c.get("ai_priority_score")
+
+                              ai_score_text = f"{ai_score}/100" if ai_score is not None else "N/A"
+
+                              ai_reason = c.get("ai_reason") or "No explanation saved"
+                              suggested_solution = c.get("ai_suggested_solution") or "No suggestion saved"
+
+                              assignment_source = c.get("assignment_source") or "Manual/Unknown"
+                              review_badge = (
+                                  '<strong style="color:#b42318;">NEEDS ADMIN REVIEW</strong><br>'
+                                  if c["status"] == "Needs Review" or not c["department"]
+                                  else ""
+                              )
+
+                              rows += f"""
+
+                              <tr>
+
+                                        <td>{c['complaint_id']}</td>
+
+                                        <td>{c['citizen_name']}</td>
+
+                                        <td>{c['category']}</td>
+
+                                        <td>{c['description']}</td>
+
+                                        <td>{c['location']}</td>
+
+                                        <td>{review_badge}{c['department'] or 'Not Assigned'}<br><small>Source: {assignment_source}</small></td>
+
+                                        <td>{ai_department}</td>
+
+                                        <td>{ai_confidence_text}</td>
+
+                                        <td><strong>{ai_priority}</strong><br>{ai_score_text}<br><small>{ai_reason}</small></td>
+                                        <td><small>{suggested_solution}</small></td>
+
+                                        <td>{c['status']}</td>
+
+                                        <td>{verification_cell}</td>
+
+                                        <td>
+
+                                                  <form action="/admin-assign" method="POST">
+
+                                                            <input type="hidden" name="complaint_id" value="{c['complaint_id']}">
+
+                                                            <select name="department" required>{options}</select>
+
+                                                            <button type="submit">Assign</button>
+
+                                                  </form>
+
+                                        </td>
+
+                                        <td>{c['created_at']}</td>
+
+                              </tr>
+
+                              """
+
+
+
+                    if not rows:
+
+                              rows = '<tr><td colspan="14">No complaints found.</td></tr>'
+
+
+
+                    return f"""<!DOCTYPE html>
+
+<html><head>
+
+          <title>Admin Dashboard - CivicFix</title>
+
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+          <style>
+
+                    body {{ margin:0; font-family:Arial,sans-serif; background:#f4f7fb; color:#222; }}
+
+                    .header {{ background:#1769aa; color:white; padding:20px 30px; display:flex; justify-content:space-between; align-items:center; }}
+
+                    .header h1 {{ margin:0; }} .header p {{ margin:5px 0 0; }}
+
+                    .logout {{ background:white; color:#1769aa; text-decoration:none; padding:10px 18px; border-radius:6px; font-weight:bold; }}
+
+                    .content {{ padding:30px; }}
+
+                    .card {{ background:white; padding:22px; border-radius:10px; box-shadow:0 2px 10px rgba(0,0,0,.08); overflow-x:auto; }}
+
+                    table {{ width:100%; border-collapse:collapse; min-width:1600px; }}
+
+                    th,td {{ border:1px solid #ddd; padding:12px; text-align:left; vertical-align:top; }}
+
+                    th {{ background:#1769aa; color:white; }} tr:nth-child(even) {{ background:#f8fafc; }}
+
+                    select {{ padding:8px; border:1px solid #ccc; border-radius:5px; margin-bottom:7px; width:180px; }}
+
+                    form button {{ background:#1769aa; color:white; border:0; padding:8px 14px; border-radius:5px; cursor:pointer; font-weight:bold; }}
+
+                    form button:hover {{ background:#12578e; }} .reject-button {{ background:#b42318 !important; }}
+
+                    small {{ color:#555; }}
+
+          </style>
+
+</head><body>
+
+          <div class="header"><div><h1>CivicFix Bengaluru</h1><p>Admin Dashboard</p></div><a class="logout" href="/logout">Logout</a></div>
+
+          <div class="content"><h2>All Citizen Complaints</h2><div class="card"><table>
+
+                    <thead><tr>
+
+                              <th>Complaint ID</th><th>Citizen</th><th>Category</th><th>Description</th><th>Location</th>
+
+                              <th>Assigned Department</th><th>AI Recommendation</th><th>AI Confidence</th><th>AI Priority</th><th>AI Suggested Solution</th>
+
+                              <th>Status</th><th>Proof Verification</th><th>Assign Department</th><th>Created</th>
+
+                    </tr></thead><tbody>{rows}</tbody>
+
+          </table></div></div>
+
+</body></html>"""
+
+
+
+          except Exception as e:
+
+                    print("ADMIN DASHBOARD ERROR:", e)
+
+                    if cursor:
+
+                              cursor.close()
+
+                    if db:
+
+                              db.close()
+
+                    return '<h2>Admin Dashboard Error</h2><p>Check the VS Code terminal for the error.</p><a href="/admin-login">Back to Admin Login</a>'
+
+
+
+def admin_view_proof(complaint_id):
+
+          if "admin_id" not in session:
+
+                    return redirect("/admin-login")
+
+
+
+          db = None
+
+          cursor = None
+
+          try:
+
+                    db = get_db_connection()
+
+                    cursor = db.cursor(dictionary=True)
+
+                    cursor.execute(
+
+                              "SELECT resolution_proof FROM complaints WHERE complaint_id = %s LIMIT 1",
+
+                              (complaint_id,)
+
+                    )
+
+                    complaint = cursor.fetchone()
+
+                    cursor.close()
+
+                    db.close()
+
+
+
+                    if not complaint or not complaint["resolution_proof"]:
+
+                              return "<h2>Proof Not Found</h2><a href='/admin-dashboard'>Back to Admin Dashboard</a>"
+
+
+
+                    return send_from_directory(UPLOAD_FOLDER, complaint["resolution_proof"])
+
+          except Exception as e:
+
+                    print("ADMIN VIEW PROOF ERROR:", e)
+
+                    if cursor:
+
+                              cursor.close()
+
+                    if db:
+
+                              db.close()
+
+                    return "<h2>Unable to view proof.</h2><a href='/admin-dashboard'>Back to Admin Dashboard</a>"
+
+
+
+@app.route("/admin-verify-proof", methods=["POST"])
+
+def admin_verify_proof():
+
+          if "admin_id" not in session:
+
+                    return redirect("/admin-login")
+
+
+
+          complaint_id = request.form.get("complaint_id", "").strip()
+
+          if not complaint_id:
+
+                    return redirect("/admin-dashboard")
+
+
+
+          db = None
+
+          cursor = None
+
+          try:
+
+                    db = get_db_connection()
+
+                    cursor = db.cursor()
+
+                    cursor.execute(
+
+                              """
+
+                              UPDATE complaints
+
+                              SET proof_status = 'Verified'
+
+                              WHERE complaint_id = %s
+
+                                   AND status = 'Resolved'
+
+                                   AND resolution_proof IS NOT NULL
+
+                                   AND resolution_proof <> ''
+
+                                   AND proof_status = 'Pending'
+
+                              """,
+
+                              (complaint_id,)
+
+                    )
+
+                    db.commit()
+
+                    cursor.close()
+
+                    db.close()
+
+                    return redirect("/admin-dashboard")
+
+          except Exception as e:
+
+                    print("ADMIN VERIFY PROOF ERROR:", e)
+
+                    if cursor:
+
+                              cursor.close()
+
+                    if db:
+
+                              db.close()
+
+                    return redirect("/admin-dashboard")
+
+
+
+@app.route("/admin-reject-proof", methods=["POST"])
+
+def admin_reject_proof():
+
+          if "admin_id" not in session:
+
+                    return redirect("/admin-login")
+
+
+
+          complaint_id = request.form.get("complaint_id", "").strip()
+
+          if not complaint_id:
+
+                    return redirect("/admin-dashboard")
+
+
+
+          db = None
+
+          cursor = None
+
+          try:
+
+                    db = get_db_connection()
+
+                    cursor = db.cursor()
+
+                    cursor.execute(
+
+                              """
+
+                              UPDATE complaints
+
+                              SET proof_status = 'Rejected',
+
+                                        resolution_proof = NULL
+
+                              WHERE complaint_id = %s
+
+                                   AND status = 'Resolved'
+
+                                   AND proof_status = 'Pending'
+
+                              """,
+
+                              (complaint_id,)
+
+                    )
+
+                    db.commit()
+
+                    cursor.close()
+
+                    db.close()
+
+                    return redirect("/admin-dashboard")
+
+          except Exception as e:
+
+                    print("ADMIN REJECT PROOF ERROR:", e)
+
+                    if cursor:
+
+                              cursor.close()
+
+                    if db:
+
+                              db.close()
+
+                    return redirect("/admin-dashboard")
+
+
+
+@app.route("/department-login", methods=["GET", "POST"])
+
+def department_login():
+
+          if request.method == "POST":
+
+                    email = request.form.get("email", "").strip().lower()
+
+                    password = request.form.get("password", "")
+
+
+
+                    try:
+
+                              db = get_db_connection()
+
+                              cursor = db.cursor(dictionary=True)
+
+
+
+                              cursor.execute(
+
+                                        """
+
+                                        SELECT id, full_name, email, password_hash, role, is_verified
+
+                                        FROM users
+
+                                        WHERE email = %s
+
+                                        AND role = 'department'
+
+                                        LIMIT 1
+
+                                        """,
+
+                                        (email,)
+
+                              )
+
+
+
+                              department_user = cursor.fetchone()
+
+                              cursor.close()
+
+                              db.close()
+
+
+
+                              if department_user is None:
+
+                                        return render_template(
+
+                                                  "department_login.html",
+
+                                                  error="Invalid email or password."
+
+                                        )
+
+
+
+                              if not check_password_hash(department_user["password_hash"], password):
+
+                                        return render_template(
+
+                                                  "department_login.html",
+
+                                                  error="Invalid email or password."
+
+                                        )
+
+
+
+                              if not department_user["is_verified"]:
+
+                                        return render_template(
+
+                                                  "department_login.html",
+
+                                                  error="This department account is not verified."
+
+                                        )
+
+
+
+                              session["department_id"] = department_user["id"]
+
+                              session["department_name"] = department_user["full_name"]
+
+                              session["department_email"] = department_user["email"]
+
+
+
+                              return redirect("/department-dashboard")
+
+
+
+                    except Exception as e:
+
+                              print("DEPARTMENT LOGIN ERROR:", e)
+
+                              return render_template(
+
+                                        "department_login.html",
+
+                                        error="Something went wrong. Please try again."
+
+                              )
+
+
+
+          return render_template("department_login.html")
+
+
+
+@app.route("/department-update-status", methods=["POST"])
+
+def department_update_status():
+
+          if "department_id" not in session:
+
+                    return redirect("/department-login")
+
+
+
+          complaint_id = request.form.get("complaint_id", "").strip()
+
+          new_status = request.form.get("status", "").strip()
+
+          department_email = session.get("department_email", "")
+
+
+
+          department_map = {
+
+                    "roads@civicfix.com": "BBMP Roads",
+
+                    "waste@civicfix.com": "BBMP Solid Waste",
+
+                    "electrical@civicfix.com": "BBMP Electrical",
+
+                    "water@civicfix.com": "BWSSB Water",
+
+                    "sewerage@civicfix.com": "BWSSB Sewerage",
+
+                    "stormwater@civicfix.com": "BBMP Storm Water"
+
+          }
+
+
+
+          department = department_map.get(department_email)
+
+          allowed_transitions = {
+
+                    "Assigned": "In Progress",
+
+                    "In Progress": "Resolved"
+
+          }
+
+
+
+          if not department or not complaint_id or new_status not in {"In Progress", "Resolved"}:
+
+                    return redirect("/department-dashboard")
+
+
+
+          db = None
+
+          cursor = None
+
+
+
+          try:
+
+                    db = get_db_connection()
+
+                    cursor = db.cursor(dictionary=True)
+
+
+
+                    cursor.execute(
+
+                              """
+
+                              SELECT status
+
+                              FROM complaints
+
+                              WHERE complaint_id = %s
+
+                                   AND department = %s
+
+                              LIMIT 1
+
+                              """,
+
+                              (complaint_id, department)
+
+                    )
+
+                    complaint = cursor.fetchone()
+
+
+
+                    if complaint is None:
+
+                              cursor.close()
+
+                              db.close()
+
+                              return redirect("/department-dashboard")
+
+
+
+                    current_status = complaint["status"]
+
+                    if allowed_transitions.get(current_status) != new_status:
+
+                              cursor.close()
+
+                              db.close()
+
+                              return redirect("/department-dashboard")
+
+
+
+                    cursor.execute(
+
+                              """
+
+                              UPDATE complaints
+
+                              SET status = %s
+
+                              WHERE complaint_id = %s
+
+                                   AND department = %s
+
+                              """,
+
+                              (new_status, complaint_id, department)
+
+                    )
+
+                    db.commit()
+
+
+
+                    cursor.close()
+
+                    db.close()
+
+                    return redirect("/department-dashboard")
+
+
+
+          except Exception as e:
+
+                    print("DEPARTMENT STATUS UPDATE ERROR:", e)
+
+                    if cursor:
+
+                              cursor.close()
+
+                    if db:
+
+                              db.close()
+
+                    return redirect("/department-dashboard")
+
+
+
+@app.route("/department-upload-proof", methods=["POST"])
+
+def department_upload_proof():
+
+          if "department_id" not in session:
+
+                    return redirect("/department-login")
+
+
+
+          complaint_id = request.form.get("complaint_id", "").strip()
+
+          proof_file = request.files.get("proof_file")
+
+
+
+          if not complaint_id or not proof_file or proof_file.filename == "":
+
+                    return redirect("/department-dashboard")
+
+
+
+          if not allowed_file(proof_file.filename):
+
+                    return redirect("/department-dashboard")
+
+
+
+          department_email = session.get("department_email", "")
+
+          department_map = {
+
+                    "roads@civicfix.com": "BBMP Roads",
+
+                    "waste@civicfix.com": "BBMP Solid Waste",
+
+                    "electrical@civicfix.com": "BBMP Electrical",
+
+                    "water@civicfix.com": "BWSSB Water",
+
+                    "sewerage@civicfix.com": "BWSSB Sewerage",
+
+                    "stormwater@civicfix.com": "BBMP Storm Water"
+
+          }
+
+          department = department_map.get(department_email)
+
+
+
+          if not department:
+
+                    return redirect("/department-dashboard")
+
+
+
+          db = None
+
+          cursor = None
+
+          try:
+
+                    db = get_db_connection()
+
+                    cursor = db.cursor(dictionary=True)
+
+
+
+                    cursor.execute(
+
+                              """
+
+                              SELECT id, status, resolution_proof, proof_status
+
+                              FROM complaints
+
+                              WHERE complaint_id = %s AND department = %s
+
+                              """,
+
+                              (complaint_id, department)
+
+                    )
+
+                    complaint = cursor.fetchone()
+
+
+
+                    if not complaint or complaint["status"] != "Resolved":
+
+                              cursor.close()
+
+                              db.close()
+
+                              return redirect("/department-dashboard")
+
+
+
+                    if complaint["proof_status"] == "Verified":
+
+                              cursor.close()
+
+                              db.close()
+
+                              return redirect("/department-dashboard")
+
+
+
+                    original_name = secure_filename(proof_file.filename)
+
+                    extension = original_name.rsplit(".", 1)[1].lower()
+
+                    filename = f"proof_{complaint_id}_{secrets.token_hex(8)}.{extension}"
+
+                    proof_file.save(os.path.join(UPLOAD_FOLDER, filename))
+
+
+
+                    cursor.execute(
+
+                              """
+
+                              UPDATE complaints
+
+                              SET resolution_proof = %s,
+
+                                        proof_status = 'Pending'
+
+                              WHERE complaint_id = %s AND department = %s
+
+                              """,
+
+                              (filename, complaint_id, department)
+
+                    )
+
+                    db.commit()
+
+
+
+                    cursor.close()
+
+                    db.close()
+
+                    return redirect("/department-dashboard")
+
+
+
+          except Exception as e:
+
+                    print("DEPARTMENT PROOF UPLOAD ERROR:", e)
+
+                    if cursor:
+
+                              cursor.close()
+
+                    if db:
+
+                              db.close()
+
+                    return redirect("/department-dashboard")
+
+
+
+@app.route("/department-dashboard")
+
+def department_dashboard():
+
+          if "department_id" not in session:
+
+                    return redirect("/department-login")
+
+
+
+          department_email = session.get("department_email", "")
+
+
+
+          department_map = {
+
+                    "roads@civicfix.com": "BBMP Roads",
+
+                    "waste@civicfix.com": "BBMP Solid Waste",
+
+                    "electrical@civicfix.com": "BBMP Electrical",
+
+                    "water@civicfix.com": "BWSSB Water",
+
+                    "sewerage@civicfix.com": "BWSSB Sewerage",
+
+                    "stormwater@civicfix.com": "BBMP Storm Water"
+
+          }
+
+
+
+          department = department_map.get(department_email)
+
+
+
+          if not department:
+
+                    return """
+
+                    <h2>Department Not Configured</h2>
+
+                    <p>This department account has not been mapped to a CivicFix department yet.</p>
+
+                    <a href="/logout">Logout</a>
+
+                    """
+
+
+
+          db = None
+
+          cursor = None
+
+
+
+          try:
+
+                    db = get_db_connection()
+
+                    cursor = db.cursor(dictionary=True)
+
+
+
+                    cursor.execute(
+
+                              """
+
+                              SELECT
+
+                                        complaint_id,
+
+                                        category,
+
+                                        description,
+
+                                        image_path,
+
+                                        location,
+
+                                        status,
+
+                                        resolution_proof,
+
+                                        proof_status,
+
+                                        created_at,
+
+                                        updated_at
+
+                              FROM complaints
+
+                              WHERE department = %s
+
+                              ORDER BY created_at DESC
+
+                              """,
+
+                              (department,)
+
+                    )
+
+
+
+                    complaints = cursor.fetchall()
+
+                    cursor.close()
+
+                    db.close()
+
+
+
+                    rows = ""
+
+
+
+                    for complaint in complaints:
+
+                              current_status = complaint["status"]
+
+                              action = ""
+
+
+
+                              if current_status == "Assigned":
+
+                                        action = f"""
+
+                                                  <form action="/department-update-status" method="POST">
+
+                                                            <input type="hidden" name="complaint_id" value="{complaint['complaint_id']}">
+
+                                                            <input type="hidden" name="status" value="In Progress">
+
+                                                            <button type="submit" class="status-button">Start Work</button>
+
+                                                  </form>
+
+                                        """
+
+                              elif current_status == "In Progress":
+
+                                        action = f"""
+
+                                                  <form action="/department-update-status" method="POST">
+
+                                                            <input type="hidden" name="complaint_id" value="{complaint['complaint_id']}">
+
+                                                            <input type="hidden" name="status" value="Resolved">
+
+                                                            <button type="submit" class="status-button">Mark Resolved</button>
+
+                                                  </form>
+
+                                        """
+
+                              elif current_status == "Resolved":
+
+                                        if complaint["proof_status"] == "Verified":
+
+                                                  action = "<span class=\"completed-text\">Proof Verified</span>"
+
+                                        elif complaint["resolution_proof"]:
+
+                                                  action = "<span class=\"pending-text\">Proof Uploaded - Waiting for Admin</span>"
+
+                                        else:
+
+                                                  action = f"""
+
+                                                            <form action=\"/department-upload-proof\" method=\"POST\" enctype=\"multipart/form-data\">
+
+                                                                      <input type=\"hidden\" name=\"complaint_id\" value=\"{complaint['complaint_id']}\">
+
+                                                                      <input type=\"file\" name=\"proof_file\" accept=\".jpg,.jpeg,.png,.gif,.webp\" required>
+
+                                                                      <button type=\"submit\" class=\"status-button\">Upload Proof</button>
+
+                                                            </form>
+
+                                                  """
+
+                              else:
+
+                                        action = "<span class=\"completed-text\">Completed</span>"
+
+
+
+                              rows += f"""
+
+                              <tr>
+
+                                        <td>{complaint['complaint_id']}</td>
+
+                                        <td>{complaint['category']}</td>
+
+                                        <td>{complaint['description']}</td>
+
+                                        <td>{complaint['location']}</td>
+
+                                        <td><strong>{complaint['status']}</strong></td>
+
+                                        <td>{complaint['created_at']}</td>
+
+                                        <td>{action}</td>
+
+                              </tr>
+
+                              """
+
+
+
+                    if not rows:
+
+                              rows = """
+
+                              <tr>
+
+                                        <td colspan="7">No complaints are currently assigned to your department.</td>
+
+                              </tr>
+
+                              """
+
+
+
+                    return f"""
+
+                    <!DOCTYPE html>
+
+                    <html>
+
+                    <head>
+
+                              <title>Department Dashboard - CivicFix</title>
+
+                              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+                              <style>
+
+                                        body {{
+
+                                                  margin: 0;
+
+                                                  font-family: Arial, sans-serif;
+
+                                                  background: #f4f7fb;
+
+                                                  color: #222;
+
+                                        }}
+
+                                        .header {{
+
+                                                  background: #0d6efd;
+
+                                                  color: white;
+
+                                                  padding: 20px 30px;
+
+                                                  display: flex;
+
+                                                  justify-content: space-between;
+
+                                                  align-items: center;
+
+                                        }}
+
+                                        .header h1 {{
+
+                                                  margin: 0;
+
+                                                  font-size: 24px;
+
+                                        }}
+
+                                        .logout {{
+
+                                                  color: white;
+
+                                                  text-decoration: none;
+
+                                                  background: #084298;
+
+                                                  padding: 10px 16px;
+
+                                                  border-radius: 6px;
+
+                                        }}
+
+                                        .container {{
+
+                                                  padding: 30px;
+
+                                        }}
+
+                                        .info-box {{
+
+                                                  background: white;
+
+                                                  padding: 20px;
+
+                                                  border-radius: 10px;
+
+                                                  margin-bottom: 20px;
+
+                                                  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+
+                                        }}
+
+                                        .table-container {{
+
+                                                  background: white;
+
+                                                  padding: 20px;
+
+                                                  border-radius: 10px;
+
+                                                  overflow-x: auto;
+
+                                                  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+
+                                        }}
+
+                                        table {{
+
+                                                  width: 100%;
+
+                                                  border-collapse: collapse;
+
+                                                  min-width: 1100px;
+
+                                        }}
+
+                                        th, td {{
+
+                                                  padding: 12px;
+
+                                                  border-bottom: 1px solid #ddd;
+
+                                                  text-align: left;
+
+                                                  vertical-align: top;
+
+                                        }}
+
+                                        th {{
+
+                                                  background: #eef3f8;
+
+                                        }}
+
+                                        .status-button {{
+
+                                                  border: none;
+
+                                                  background: #0d6efd;
+
+                                                  color: white;
+
+                                                  padding: 9px 14px;
+
+                                                  border-radius: 6px;
+
+                                                  cursor: pointer;
+
+                                                  font-size: 14px;
+
+                                        }}
+
+                                        .status-button:hover {{
+
+                                                  background: #084298;
+
+                                        }}
+
+                                        .completed-text {{
+
+                                                  color: #198754;
+
+                                                  font-weight: bold;
+
+                                        }}
+
+                                        .pending-text {{
+
+                                                  color: #856404;
+
+                                                  font-weight: bold;
+
+                                        }}
+
+                                        input[type=\"file\"] {{
+
+                                                  margin-bottom: 8px;
+
+                                                  max-width: 220px;
+
+                                        }}
+
+                              </style>
+
+                    </head>
+
+                    <body>
+
+                              <div class="header">
+
+                                        <h1>Department Dashboard</h1>
+
+                                        <a class="logout" href="/logout">Logout</a>
+
+                              </div>
+
+
+
+                              <div class="container">
+
+                                        <div class="info-box">
+
+                                                  <h2>Welcome, {session.get("department_name", "Department")}</h2>
+
+                                                  <p><strong>Department:</strong> {department}</p>
+
+                                                  <p><strong>Assigned Complaints:</strong> {len(complaints)}</p>
+
+                                        </div>
+
+
+
+                                        <div class="table-container">
+
+                                                  <h2>Assigned Complaints</h2>
+
+                                                  <table>
+
+                                                            <thead>
+
+                                                                      <tr>
+
+                                                                                <th>Complaint ID</th>
+
+                                                                                <th>Category</th>
+
+                                                                                <th>Description</th>
+
+                                                                                <th>Location</th>
+
+                                                                                <th>Status</th>
+
+                                                                                <th>Created</th>
+
+                                                                                <th>Action</th>
+
+                                                                      </tr>
+
+                                                            </thead>
+
+                                                            <tbody>
+
+                                                                      {rows}
+
+                                                            </tbody>
+
+                                                  </table>
+
+                                        </div>
+
+                              </div>
+
+                    </body>
+
+                    </html>
+
+                    """
+
+
+
+          except Exception as e:
+
+                    print("DEPARTMENT DASHBOARD ERROR:", e)
+
+
+
+                    if cursor:
+
+                              cursor.close()
+
+                    if db:
+
+                              db.close()
+
+
+
+                    return """
+
+                    <h2>Department Dashboard Error</h2>
+
+                    <p>Something went wrong while loading assigned complaints.</p>
+
+                    <a href="/department-login">Back to Department Login</a>
+
+                    """
+
+
+
+@app.route("/logout")
+
+def logout():
+
+          session.clear()
+
+          return redirect("/")
+
+
+
+@app.route("/test-db")
+
+def test_db():
+
+          try:
+
+                    db = get_db_connection()
+
+                    cursor = db.cursor()
+
+                    cursor.execute("SELECT DATABASE()")
+
+                    result = cursor.fetchone()
+
+                    cursor.close()
+
+                    db.close()
+
+
+
+                    return "Database connected successfully: " + result[0]
+
+
+
+          except Exception as e:
+
+                    return "Database connection failed: " + str(e)
+
+
+
+@app.errorhandler(413)
+
+def file_too_large(error):
+
+          return """
+
+          <h2>File Too Large</h2>
+
+          <p>Please upload an image smaller than 5 MB.</p>
+
+          <a href="/citizen-dashboard">Go Back</a>
+
+          """, 413
+
+
+
+if __name__ == "__main__":
+
+          app.run(debug=True)
