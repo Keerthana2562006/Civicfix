@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Citizen Registration — CivicFix Bengaluru</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+    <header class="site-nav">
+        <div class="nav-brand">
+            <div class="brand-logo">🏙️</div>
+            <div>
+                <h1>CivicFix Bengaluru</h1>
+                <p>Citizen Portal Registration</p>
+            </div>
+        </div>
+        <div class="nav-user">
+            <a href="/" class="btn-nav-secondary">← Back to Home</a>
+        </div>
+    </header>
+
+    <div class="auth-page">
+        <div class="auth-card">
+
+            <div class="auth-header">
+                <div class="logo-badge">👤</div>
+                <h1>Create Citizen Account</h1>
+                <p>Register to report and track municipal civic issues</p>
+            </div>
+
+            {% if error %}
+                <div class="alert-flash alert-danger">
+                    <span>⚠️</span>
+                    <span>{{ error }}</span>
+                </div>
+            {% endif %}
+
+            {% if message %}
+                <div class="alert-flash alert-success">
+                    <span>✓</span>
+                    <span>{{ message }}</span>
+                </div>
+            {% endif %}
+
+            <form method="POST" action="/citizen-register" id="registerForm">
+
+                <div class="form-group">
+                    <label for="full_name">Full Name *</label>
+                    <input
+                        type="text"
+                        id="full_name"
+                        name="full_name"
+                        class="form-control"
+                        placeholder="e.g. Ramesh Kumar"
+                        required
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="email">Email Address *</label>
+                    <input
+                        type="email"
+                        id="email"
+                        name="email"
+                        class="form-control"
+                        placeholder="e.g. citizen@example.com"
+                        required
+                    >
+                    <small style="font-size:12px; color:var(--text-muted); display:block; margin-top:4px;">
+                        A 6-digit OTP will be sent to this email for verification.
+                    </small>
+                </div>
+
+                <div class="form-group">
+                    <label for="phone">Mobile Phone Number *</label>
+                    <input
+                        type="tel"
+                        id="phone"
+                        name="phone"
+                        class="form-control"
+                        placeholder="10-digit mobile number"
+                        maxlength="10"
+                        pattern="[0-9]{10}"
+                        required
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Create Password *</label>
+                    <input
+                        type="password"
+                        id="password"
+                        name="password"
+                        class="form-control"
+                        placeholder="Create a strong password"
+                        minlength="6"
+                        required
+                    >
+
+                    <div class="password-rules">
+                        <p id="lengthRule">○ At least 6 characters</p>
+                        <p id="upperRule">○ One uppercase letter (A-Z)</p>
+                        <p id="specialRule">○ One special symbol (@, #, $, etc.)</p>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="confirm_password">Confirm Password *</label>
+                    <input
+                        type="password"
+                        id="confirm_password"
+                        name="confirm_password"
+                        class="form-control"
+                        placeholder="Re-enter password"
+                        required
+                    >
+                </div>
+
+                <button type="submit" class="btn-primary" id="btnSubmit">
+                    Register & Send Verification OTP
+                </button>
+
+            </form>
+
+            <p class="auth-footer">
+                Already registered?
+                <a href="/citizen-login">Login to your account</a>
+            </p>
+
+        </div>
+    </div>
+
+    <!-- Password Requirement Modal Popup -->
+    <div class="popup-overlay" id="passwordPopup">
+        <div class="popup-box">
+            <div class="popup-icon">!</div>
+            <h3>Password Requirement</h3>
+            <p id="popupMessage">Please check your password.</p>
+            <button type="button" onclick="closePopup()">Got it</button>
+        </div>
+    </div>
+
+    <footer class="site-footer">
+        © 2026 CivicFix Bengaluru. Official Municipal Civic Redressal Portal.
+    </footer>
+
+    <script>
+        const password = document.getElementById("password");
+        const confirmPassword = document.getElementById("confirm_password");
+        const lengthRule = document.getElementById("lengthRule");
+        const upperRule = document.getElementById("upperRule");
+        const specialRule = document.getElementById("specialRule");
+
+        password.addEventListener("input", function () {
+            const val = password.value;
+
+            // Length
+            if (val.length >= 6) {
+                lengthRule.textContent = "✓ At least 6 characters";
+                lengthRule.classList.add("valid");
+            } else {
+                lengthRule.textContent = "○ At least 6 characters";
+                lengthRule.classList.remove("valid");
+            }
+
+            // Uppercase
+            if (/[A-Z]/.test(val)) {
+                upperRule.textContent = "✓ One uppercase letter (A-Z)";
+                upperRule.classList.add("valid");
+            } else {
+                upperRule.textContent = "○ One uppercase letter (A-Z)";
+                upperRule.classList.remove("valid");
+            }
+
+            // Special symbol
+            if (/[^A-Za-z0-9]/.test(val)) {
+                specialRule.textContent = "✓ One special symbol";
+                specialRule.classList.add("valid");
+            } else {
+                specialRule.textContent = "○ One special symbol";
+                specialRule.classList.remove("valid");
+            }
+        });
+
+        document.getElementById("registerForm").addEventListener("submit", function (event) {
+            const val = password.value;
+            const confirmVal = confirmPassword.value;
+
+            if (val.length < 6) {
+                event.preventDefault();
+                showPopup("Password must contain at least 6 characters.");
+                return;
+            }
+
+            if (!/[A-Z]/.test(val)) {
+                event.preventDefault();
+                showPopup("Password must contain at least one uppercase letter.");
+                return;
+            }
+
+            if (!/[^A-Za-z0-9]/.test(val)) {
+                event.preventDefault();
+                showPopup("Password must contain at least one special symbol.");
+                return;
+            }
+
+            if (val !== confirmVal) {
+                event.preventDefault();
+                showPopup("Passwords do not match.");
+                return;
+            }
+        });
+
+        function showPopup(msg) {
+            document.getElementById("popupMessage").textContent = msg;
+            document.getElementById("passwordPopup").classList.add("show");
+        }
+
+        function closePopup() {
+            document.getElementById("passwordPopup").classList.remove("show");
+        }
+    </script>
+
+</body>
+</html>

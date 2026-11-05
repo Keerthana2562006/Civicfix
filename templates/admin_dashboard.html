@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard — CivicFix Bengaluru</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+    <header class="admin-nav">
+        <div class="nav-brand">
+            <div class="brand-logo brand-logo-admin">🛡️</div>
+            <div>
+                <h1>CivicFix Administration</h1>
+                <p>Centralized Complaint Review & Assignment</p>
+            </div>
+        </div>
+        <div class="user-info">
+            <span>Welcome, <strong>{{ session.get('admin_name', 'Administrator') }}</strong></span>
+            <a href="/logout" class="btn-logout">Logout</a>
+        </div>
+    </header>
+
+    <div class="container">
+
+        {% if error %}
+            <div class="alert-flash alert-danger">{{ error }}</div>
+        {% endif %}
+        {% if message %}
+            <div class="alert-flash alert-success">{{ message }}</div>
+        {% endif %}
+
+        <!-- KPI Summary Cards -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="num">{{ stats.total }}</div>
+                <div class="label">Total Complaints</div>
+            </div>
+            <div class="stat-card alert-card">
+                <div class="num">{{ stats.submitted }}</div>
+                <div class="label">Awaiting Approval</div>
+            </div>
+            <div class="stat-card">
+                <div class="num">{{ stats.assigned }}</div>
+                <div class="label">Assigned</div>
+            </div>
+            <div class="stat-card">
+                <div class="num">{{ stats.in_progress }}</div>
+                <div class="label">In Progress</div>
+            </div>
+            <div class="stat-card alert-card">
+                <div class="num">{{ stats.awaiting_verification }}</div>
+                <div class="label">Proof Verification</div>
+            </div>
+            <div class="stat-card success-card">
+                <div class="num">{{ stats.completed }}</div>
+                <div class="label">Completed</div>
+            </div>
+            <div class="stat-card danger-card">
+                <div class="num">{{ stats.rejected }}</div>
+                <div class="label">Rejected</div>
+            </div>
+        </div>
+
+        <!-- Filter Controls -->
+        <div class="filter-bar">
+            <span><strong>Filter by Status:</strong></span>
+            <a href="/admin-dashboard" class="filter-btn {% if not current_filter %}active{% endif %}">All</a>
+            <a href="/admin-dashboard?status=Submitted" class="filter-btn {% if current_filter == 'Submitted' %}active{% endif %}">Awaiting Approval ({{ stats.submitted }})</a>
+            <a href="/admin-dashboard?status=Assigned" class="filter-btn {% if current_filter == 'Assigned' %}active{% endif %}">Assigned</a>
+            <a href="/admin-dashboard?status=In Progress" class="filter-btn {% if current_filter == 'In Progress' %}active{% endif %}">In Progress</a>
+            <a href="/admin-dashboard?status=Verification" class="filter-btn {% if current_filter == 'Verification' %}active{% endif %}">Needs Verification ({{ stats.awaiting_verification }})</a>
+            <a href="/admin-dashboard?status=Resolved" class="filter-btn {% if current_filter == 'Resolved' %}active{% endif %}">Completed</a>
+        </div>
+
+        <!-- Complaints Table -->
+        <div class="table-responsive">
+            <table class="admin-table">
+                <thead>
+                    <tr>
+                        <th>Complaint ID & Date</th>
+                        <th>Citizen</th>
+                        <th>Category & Location</th>
+                        <th>Description & Photo</th>
+                        <th>AI Recommendation</th>
+                        <th>Current Status</th>
+                        <th>Assigned Department</th>
+                        <th>Resolution Proof</th>
+                        <th>Admin Approval & Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if complaints %}
+                        {% for c in complaints %}
+                            <tr>
+                                <td>
+                                    <strong>{{ c.complaint_id }}</strong><br>
+                                    <small style="color:#64748b;">{{ c.created_at.strftime('%d-%b-%Y %H:%M') if c.created_at else '' }}</small>
+                                </td>
+                                <td>
+                                    <strong>{{ c.citizen_name }}</strong><br>
+                                    <small>{{ c.citizen_phone }}</small><br>
+                                    <small style="color:#64748b;">{{ c.citizen_email }}</small>
+                                </td>
+                                <td>
+                                    <strong>{{ c.category }}</strong><br>
+                                    <small>📍 {{ c.location }}</small>
+                                </td>
+                                <td style="max-width:240px;">
+                                    <p style="margin-bottom:6px;">{{ c.description }}</p>
+                                    {% if c.image_path %}
+                                        <a href="/{{ c.image_path }}" target="_blank" title="Click to view full photo">
+                                            <img src="/{{ c.image_path }}" class="photo-thumb" alt="Original complaint photo">
+                                        </a>
+                                    {% else %}
+                                        <small style="color:#94a3b8;">No photo uploaded</small>
+                                    {% endif %}
+                                </td>
+                                <td style="max-width:260px;">
+                                    <div class="ai-box">
+                                        <div><strong>Recommended:</strong> {{ c.ai_department or 'Pending' }}</div>
+                                        <div>
+                                            <strong>Confidence:</strong> {{ c.ai_department_confidence or 0 }}% |
+                                            <span class="priority-{{ (c.ai_priority or 'low').lower() }}">
+                                                {{ c.ai_priority or 'Low' }} ({{ c.ai_priority_score or 0 }}/100)
+                                            </span>
+                                        </div>
+                                        <div style="margin-top:4px; font-size:11px; color:#475569;">
+                                            {{ c.ai_reason or '' }}
+                                        </div>
+                                        {% if c.ai_suggested_solution %}
+                                            <div style="margin-top:4px; font-size:11px; color:#1e3a8a; border-top:1px dashed #cbd5e1; padding-top:4px;">
+                                                <strong>Suggested Action:</strong> {{ c.ai_suggested_solution }}
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                                <td>
+                                    {% if c.status == 'Submitted' %}
+                                        <span class="badge badge-submitted">Pending Approval</span>
+                                    {% elif c.status == 'Assigned' %}
+                                        <span class="badge badge-assigned">Assigned</span>
+                                    {% elif c.status == 'In Progress' %}
+                                        <span class="badge badge-inprogress">In Progress</span>
+                                    {% elif c.status == 'Resolved' %}
+                                        <span class="badge badge-resolved">Resolved</span>
+                                    {% elif c.status == 'Rejected' %}
+                                        <span class="badge badge-rejected">Rejected</span>
+                                    {% else %}
+                                        <span class="badge">{{ c.status }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if c.department %}
+                                        <strong>{{ c.department }}</strong><br>
+                                        <small style="color:#64748b;">Source: {{ c.assignment_source or 'Admin' }}</small>
+                                    {% else %}
+                                        <span style="color:#d97706; font-weight:bold;">Not Assigned</span>
+                                    {% endif %}
+                                </td>
+                                <td style="max-width:200px;">
+                                    {% if c.resolution_proof %}
+                                        <a href="/uploads/{{ c.resolution_proof }}" target="_blank">
+                                            <img src="/uploads/{{ c.resolution_proof }}" class="photo-thumb" alt="Completion Proof">
+                                        </a>
+                                        <div style="margin-top:4px;">
+                                            <strong>Status:</strong>
+                                            {% if c.proof_status == 'Verified' %}
+                                                <span style="color:#16a34a; font-weight:bold;">Verified ✓</span>
+                                            {% elif c.proof_status == 'Rejected' %}
+                                                <span style="color:#dc2626; font-weight:bold;">Rejected ✗</span>
+                                            {% else %}
+                                                <span style="color:#d97706; font-weight:bold;">Pending Review</span>
+                                            {% endif %}
+                                        </div>
+                                        {% if c.resolution_notes %}
+                                            <small style="color:#475569;">Note: {{ c.resolution_notes }}</small>
+                                        {% endif %}
+                                        {% if c.proof_status == 'Pending' %}
+                                            <div style="margin-top:8px; display:flex; gap:4px; flex-direction:column;">
+                                                <form action="/admin-verify-proof" method="POST">
+                                                    <input type="hidden" name="complaint_id" value="{{ c.complaint_id }}">
+                                                    <button type="submit" class="btn-sm btn-verify">Approve Proof ✓</button>
+                                                </form>
+                                                <form action="/admin-reject-proof" method="POST">
+                                                    <input type="hidden" name="complaint_id" value="{{ c.complaint_id }}">
+                                                    <input type="text" name="feedback" placeholder="Reason for rejection" required class="form-control-sm" style="margin-bottom:2px;">
+                                                    <button type="submit" class="btn-sm btn-reject">Reject Proof ✗</button>
+                                                </form>
+                                            </div>
+                                        {% endif %}
+                                    {% else %}
+                                        <small style="color:#94a3b8;">No proof uploaded</small>
+                                    {% endif %}
+                                </td>
+                                <td style="min-width:180px;">
+                                    <!-- Admin Assignment Form (Only 3 Supported Departments) -->
+                                    <form action="/admin-assign" method="POST">
+                                        <input type="hidden" name="complaint_id" value="{{ c.complaint_id }}">
+                                        <label style="font-size:11px; font-weight:bold; color:#475569;">Assign Department:</label>
+                                        <select name="department" class="form-control-sm" required>
+                                            <option value="">-- Select Department --</option>
+                                            <option value="BBMP Roads" {% if c.department == 'BBMP Roads' or (not c.department and c.ai_department == 'BBMP Roads') %}selected{% endif %}>
+                                                Roadside Engineering (roads@civicfix.com)
+                                            </option>
+                                            <option value="BBMP Storm Water" {% if c.department == 'BBMP Storm Water' or (not c.department and c.ai_department == 'BBMP Storm Water') %}selected{% endif %}>
+                                                Stormwater & Drain (stormwater@civicfix.com)
+                                            </option>
+                                            <option value="BBMP Solid Waste" {% if c.department == 'BBMP Solid Waste' or (not c.department and c.ai_department == 'BBMP Solid Waste') %}selected{% endif %}>
+                                                Solid Waste Management (waste@civicfix.com)
+                                            </option>
+                                        </select>
+                                        <button type="submit" class="btn-sm btn-assign">
+                                            {% if c.status == 'Submitted' %}Approve & Assign{% else %}Reassign{% endif %}
+                                        </button>
+                                    </form>
+
+                                    {% if c.status == 'Submitted' %}
+                                        <form action="/admin-reject-complaint" method="POST" style="margin-top:6px;">
+                                            <input type="hidden" name="complaint_id" value="{{ c.complaint_id }}">
+                                            <input type="text" name="reason" placeholder="Rejection reason..." class="form-control-sm" required style="margin-bottom:2px;">
+                                            <button type="submit" class="btn-sm btn-reject">Reject Complaint</button>
+                                        </form>
+                                    {% endif %}
+
+                                    {% if c.admin_feedback %}
+                                        <div style="margin-top:6px; font-size:11px; color:#b91c1c; background:#fee2e2; padding:4px 6px; border-radius:4px;">
+                                            <strong>Feedback:</strong> {{ c.admin_feedback }}
+                                        </div>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="9" style="text-align:center; padding:30px; color:#64748b;">
+                                No complaints found matching this criteria.
+                            </td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+
+    </div>
+
+</body>
+</html>

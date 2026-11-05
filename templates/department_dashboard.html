@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Department Portal — CivicFix Bengaluru</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+    <header class="dept-nav">
+        <div class="nav-brand">
+            <div class="brand-logo brand-logo-dept">🏢</div>
+            <div>
+                <h1>{{ department_name }}</h1>
+                <p>CivicFix Operations Queue ({{ department_code }})</p>
+            </div>
+        </div>
+        <div class="user-info">
+            <span>Logged in as: <strong>{{ session.get('department_email') }}</strong></span>
+            <a href="/logout" class="btn-logout">Logout</a>
+        </div>
+    </header>
+
+    <div class="container">
+
+        {% if error %}
+            <div class="alert-box alert-danger">{{ error }}</div>
+        {% endif %}
+        {% if message %}
+            <div class="alert-box alert-success">{{ message }}</div>
+        {% endif %}
+
+        <!-- KPI Cards -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="num">{{ stats.total }}</div>
+                <div class="label">Total Assigned</div>
+            </div>
+            <div class="stat-card alert-card">
+                <div class="num">{{ stats.in_progress }}</div>
+                <div class="label">In Progress</div>
+            </div>
+            <div class="stat-card alert-card">
+                <div class="num">{{ stats.awaiting_verification }}</div>
+                <div class="label">Awaiting Verification</div>
+            </div>
+            <div class="stat-card success-card">
+                <div class="num">{{ stats.completed }}</div>
+                <div class="label">Verified & Completed</div>
+            </div>
+        </div>
+
+        <!-- Assigned Complaints Queue -->
+        <div class="table-responsive">
+            <table class="dept-table">
+                <thead>
+                    <tr>
+                        <th>Complaint ID & Date</th>
+                        <th>Category</th>
+                        <th>Description & Location</th>
+                        <th>Original Photo</th>
+                        <th>Priority</th>
+                        <th>Status</th>
+                        <th>Resolution Proof</th>
+                        <th>Actions & Workflow</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if complaints %}
+                        {% for c in complaints %}
+                            <tr>
+                                <td>
+                                    <strong>{{ c.complaint_id }}</strong><br>
+                                    <small style="color:#64748b;">{{ c.created_at.strftime('%d-%b-%Y %H:%M') if c.created_at else '' }}</small>
+                                </td>
+                                <td>
+                                    <strong>{{ c.category }}</strong>
+                                </td>
+                                <td style="max-width:280px;">
+                                    <p style="margin-bottom:6px;">{{ c.description }}</p>
+                                    <small style="color:#64748b;">📍 {{ c.location }}</small>
+                                    {% if c.ai_suggested_solution %}
+                                        <div style="margin-top:6px; font-size:11px; background:#eff6ff; color:#1e40af; padding:6px; border-radius:4px;">
+                                            <strong>Suggested Next Steps:</strong> {{ c.ai_suggested_solution }}
+                                        </div>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if c.image_path %}
+                                        <a href="/{{ c.image_path }}" target="_blank" title="View original photo">
+                                            <img src="/{{ c.image_path }}" class="photo-thumb" alt="Original complaint photo">
+                                        </a>
+                                    {% else %}
+                                        <small style="color:#94a3b8;">No photo</small>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <span class="priority-{{ (c.ai_priority or 'low').lower() }}">
+                                        {{ c.ai_priority or 'Low' }}
+                                    </span>
+                                </td>
+                                <td>
+                                    {% if c.status == 'Assigned' %}
+                                        <span class="badge badge-assigned">Assigned</span>
+                                    {% elif c.status == 'In Progress' %}
+                                        <span class="badge badge-inprogress">In Progress</span>
+                                    {% elif c.status == 'Resolved' %}
+                                        <span class="badge badge-resolved">Resolved</span>
+                                    {% else %}
+                                        <span class="badge">{{ c.status }}</span>
+                                    {% endif %}
+                                </td>
+                                <td style="max-width:200px;">
+                                    {% if c.resolution_proof %}
+                                        <a href="/uploads/{{ c.resolution_proof }}" target="_blank">
+                                            <img src="/uploads/{{ c.resolution_proof }}" class="photo-thumb" alt="Completion Proof">
+                                        </a>
+                                        <div style="margin-top:4px;">
+                                            {% if c.proof_status == 'Verified' %}
+                                                <strong style="color:#16a34a;">Verified by Admin ✓</strong>
+                                            {% elif c.proof_status == 'Rejected' %}
+                                                <strong style="color:#dc2626;">Rejected by Admin ✗</strong>
+                                                {% if c.admin_feedback %}
+                                                    <div style="font-size:11px; color:#b91c1c; margin-top:2px;">
+                                                        Reason: {{ c.admin_feedback }}
+                                                    </div>
+                                                {% endif %}
+                                            {% else %}
+                                                <strong style="color:#d97706;">Pending Admin Verification</strong>
+                                            {% endif %}
+                                        </div>
+                                        {% if c.resolution_notes %}
+                                            <div style="font-size:11px; color:#64748b; margin-top:4px;">
+                                                Notes: {{ c.resolution_notes }}
+                                            </div>
+                                        {% endif %}
+                                    {% else %}
+                                        <small style="color:#94a3b8;">No proof uploaded</small>
+                                    {% endif %}
+                                </td>
+                                <td style="min-width:220px;">
+                                    {% if c.status == 'Assigned' %}
+                                        <form action="/department-update-status" method="POST">
+                                            <input type="hidden" name="complaint_id" value="{{ c.complaint_id }}">
+                                            <input type="hidden" name="status" value="In Progress">
+                                            <button type="submit" class="btn-start-work">Start Work 🔨</button>
+                                        </form>
+                                    {% elif c.status == 'In Progress' or (c.status == 'Resolved' and c.proof_status == 'Rejected') %}
+                                        <div class="proof-box">
+                                            <strong>Submit Work Completion:</strong>
+                                            <form action="/department-upload-proof" method="POST" enctype="multipart/form-data">
+                                                <input type="hidden" name="complaint_id" value="{{ c.complaint_id }}">
+                                                <label style="font-size:11px; margin-top:4px; display:block;">Upload Completion Photo:</label>
+                                                <input type="file" name="proof_file" accept="image/*" class="form-control-sm" required>
+                                                <label style="font-size:11px; display:block;">Work Summary / Notes:</label>
+                                                <textarea name="resolution_notes" rows="2" class="form-control-sm" placeholder="Details of work done..." required></textarea>
+                                                <button type="submit" class="btn-submit-proof">Upload & Mark Resolved</button>
+                                            </form>
+                                        </div>
+                                    {% elif c.status == 'Resolved' and c.proof_status == 'Pending' %}
+                                        <div style="color:#d97706; font-size:12px; font-weight:600;">
+                                            ⏳ Awaiting Admin Verification.
+                                        </div>
+                                    {% elif c.status == 'Resolved' and c.proof_status == 'Verified' %}
+                                        <div style="color:#16a34a; font-size:12px; font-weight:bold;">
+                                            ✓ Case Completed and Closed.
+                                        </div>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="8" style="text-align:center; padding:30px; color:#64748b;">
+                                No complaints assigned to your department queue.
+                            </td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+
+    </div>
+
+</body>
+</html>

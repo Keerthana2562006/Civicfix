@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Citizen Dashboard — CivicFix Bengaluru</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+    <header class="citizen-nav">
+        <div class="nav-brand">
+            <div class="brand-logo">🏙️</div>
+            <div>
+                <h1>CivicFix Bengaluru</h1>
+                <p>Citizen Self-Service Portal</p>
+            </div>
+        </div>
+        <div class="user-info">
+            <span>Welcome, <strong>{{ session.get('citizen_name', 'Citizen') }}</strong></span>
+            <a href="/logout" class="btn-logout">Logout</a>
+        </div>
+    </header>
+
+    <div class="container">
+
+        {% if message %}
+            <div class="alert-flash alert-success">{{ message }}</div>
+        {% endif %}
+        {% if error %}
+            <div class="alert-flash alert-danger">{{ error }}</div>
+        {% endif %}
+
+        <!-- Report Issue Form -->
+        <div class="report-card">
+            <h2>📢 Report a Civic Problem</h2>
+            <p>Submit infrastructure, road, garbage, or drain issues. Our AI will analyze your report and route it for Admin approval.</p>
+
+            <form action="/submit-complaint" method="POST" enctype="multipart/form-data">
+
+                <div class="form-group">
+                    <label for="category">Problem Category *</label>
+                    <select id="category" name="category" required>
+                        <option value="">-- Select a Category --</option>
+                        <option value="Roads & Potholes">Roads & Potholes (Potholes, broken pavement, surface damage)</option>
+                        <option value="Waterlogging & Drainage">Waterlogging & Drainage (Clogged roadside drains, standing rainwater)</option>
+                        <option value="Garbage & Waste">Garbage & Waste (Overflowing bins, illegal garbage dumps)</option>
+                        <option value="Streetlights">Streetlights (Legacy review)</option>
+                        <option value="Water Supply">Water Supply (Legacy review)</option>
+                        <option value="Sewerage">Sewerage (Legacy review)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="description">Describe the Issue *</label>
+                    <textarea id="description" name="description" rows="4" placeholder="Provide details: what is broken, for how long, and any safety hazards..." required></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="location">Location *</label>
+                    <div class="location-group">
+                        <input type="text" id="location" name="location" placeholder="e.g. 5th Main Rd, Indiranagar, Bengaluru or GPS coordinates" required>
+                        <button type="button" class="btn-location" onclick="getLocation()">📍 Use My GPS</button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="image">Upload Photograph of the Issue *</label>
+                    <input type="file" id="image" name="image" accept="image/*" required>
+                </div>
+
+                <button type="submit" class="btn-submit">Submit Complaint</button>
+            </form>
+        </div>
+
+        <!-- My Complaints Section -->
+        <h2 class="complaints-title">📋 My Reported Complaints</h2>
+
+        {% if complaints %}
+            {% for c in complaints %}
+                <div class="complaint-card">
+                    <div class="complaint-header">
+                        <div>
+                            <span class="complaint-id">{{ c.complaint_id }}</span> &nbsp;
+                            <span class="badge badge-{{ (c.status or 'submitted').lower().replace(' ', '') }}">
+                                {{ c.status }}
+                            </span>
+                        </div>
+                        <div class="complaint-date">
+                            Submitted on: {{ c.created_at.strftime('%d %b %Y, %I:%M %p') if c.created_at else '' }}
+                        </div>
+                    </div>
+
+                    <!-- Progress Lifecycle Timeline -->
+                    <div class="timeline-steps">
+                        <div class="step done">
+                            <div class="step-icon">✓</div>
+                            <div>Submitted</div>
+                        </div>
+                        <div class="step {% if c.status in ['Assigned', 'In Progress', 'Resolved'] %}done{% elif c.status == 'Submitted' %}active{% endif %}">
+                            <div class="step-icon">{% if c.status in ['Assigned', 'In Progress', 'Resolved'] %}✓{% else %}2{% endif %}</div>
+                            <div>Admin Review</div>
+                        </div>
+                        <div class="step {% if c.status in ['In Progress', 'Resolved'] %}done{% elif c.status == 'Assigned' %}active{% endif %}">
+                            <div class="step-icon">{% if c.status in ['In Progress', 'Resolved'] %}✓{% else %}3{% endif %}</div>
+                            <div>Assigned to Dept</div>
+                        </div>
+                        <div class="step {% if c.status == 'Resolved' %}done{% elif c.status == 'In Progress' %}active{% endif %}">
+                            <div class="step-icon">{% if c.status == 'Resolved' %}✓{% else %}4{% endif %}</div>
+                            <div>In Progress</div>
+                        </div>
+                        <div class="step {% if c.proof_status == 'Verified' %}done{% elif c.status == 'Resolved' %}active{% endif %}">
+                            <div class="step-icon">{% if c.proof_status == 'Verified' %}✓{% else %}5{% endif %}</div>
+                            <div>Resolved & Verified</div>
+                        </div>
+                    </div>
+
+                    <div style="font-size:14px; line-height:1.6;">
+                        <p><strong>Category:</strong> {{ c.category }}</p>
+                        <p><strong>Description:</strong> {{ c.description }}</p>
+                        <p><strong>Location:</strong> 📍 {{ c.location }}</p>
+                        <p><strong>Department Assigned:</strong> {{ c.department or 'Pending Admin assignment' }}</p>
+
+                        {% if c.admin_feedback %}
+                            <p style="color:#b91c1c; background:#fee2e2; padding:8px 12px; border-radius:6px; margin-top:8px;">
+                                <strong>Admin Notice:</strong> {{ c.admin_feedback }}
+                            </p>
+                        {% endif %}
+                    </div>
+
+                    <!-- Photos Section -->
+                    <div class="photos-grid">
+                        <div class="photo-box">
+                            <strong>Original Problem Photo:</strong>
+                            {% if c.image_path %}
+                                <div>
+                                    <a href="/{{ c.image_path }}" target="_blank">
+                                        <img src="/{{ c.image_path }}" alt="Original Issue">
+                                    </a>
+                                </div>
+                            {% else %}
+                                <p style="color:#94a3b8; margin-top:20px;">No photo available</p>
+                            {% endif %}
+                        </div>
+
+                        <div class="photo-box">
+                            <strong>Completion Proof Photo:</strong>
+                            {% if c.resolution_proof %}
+                                <div>
+                                    <a href="/uploads/{{ c.resolution_proof }}" target="_blank">
+                                        <img src="/uploads/{{ c.resolution_proof }}" alt="Completion Proof">
+                                    </a>
+                                </div>
+                                <div style="margin-top:6px; font-size:12px;">
+                                    <strong>Status:</strong>
+                                    {% if c.proof_status == 'Verified' %}
+                                        <span style="color:#16a34a; font-weight:bold;">Verified by Admin ✓</span>
+                                    {% elif c.proof_status == 'Rejected' %}
+                                        <span style="color:#dc2626; font-weight:bold;">Under Revision</span>
+                                    {% else %}
+                                        <span style="color:#d97706; font-weight:bold;">Awaiting Admin Review</span>
+                                    {% endif %}
+                                </div>
+                                {% if c.resolution_notes %}
+                                    <small style="color:#64748b; display:block; margin-top:4px;">
+                                        Dept Note: {{ c.resolution_notes }}
+                                    </small>
+                                {% endif %}
+                            {% else %}
+                                <p style="color:#94a3b8; margin-top:20px;">Work in progress / Proof not yet uploaded</p>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                </div>
+            {% endfor %}
+        {% else %}
+            <div style="background:white; padding:30px; text-align:center; border-radius:8px; border:1px solid #e2e8f0; color:#64748b;">
+                You have not submitted any complaints yet. Report an issue using the form above!
+            </div>
+        {% endif %}
+
+    </div>
+
+    <script>
+        function getLocation() {
+            if (!navigator.geolocation) {
+                alert("Geolocation is not supported by your browser.");
+                return;
+            }
+            navigator.geolocation.getCurrentPosition(
+                function(position) {
+                    document.getElementById("location").value =
+                        position.coords.latitude.toFixed(6) + ", " + position.coords.longitude.toFixed(6);
+                },
+                function() {
+                    alert("Unable to retrieve GPS coordinates. Please enter the location address manually.");
+                }
+            );
+        }
+    </script>
+</body>
+</html>
