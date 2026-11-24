@@ -37,8 +37,18 @@ app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "civicfix-production-secret-key-2026-secure")
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024  # 5 MB max upload
 
-# Allow Cross-Origin Resource Sharing for Vercel and modern frontends
-CORS(app, supports_credentials=True, resources={r"/*": {"origins": "*"}})
+# Enable CORS for Vercel frontends and local dev
+FRONTEND_URL = os.getenv("FRONTEND_URL", "*")
+CORS(
+    app,
+    supports_credentials=True,
+    origins=[
+        r"https://.*\.vercel\.app",
+        r"http://localhost:.*",
+        r"http://127\.0\.0\.1:.*",
+        FRONTEND_URL,
+    ],
+)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
@@ -164,16 +174,6 @@ def serve_upload(filename):
 @app.route("/")
 def home():
     return render_template("index.html")
-
-
-@app.route("/api/health", methods=["GET"])
-def api_health():
-    """Healthcheck endpoint for Vercel and monitoring services."""
-    return jsonify({
-        "status": "online",
-        "service": "CivicFix Backend API",
-        "cors_enabled": True
-    }), 200
 
 
 @app.route("/test-db")
