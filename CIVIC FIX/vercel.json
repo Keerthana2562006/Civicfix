@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://such-denver-areas-michel.trycloudflare.com/:path*"
+    }
+  ]
+}
