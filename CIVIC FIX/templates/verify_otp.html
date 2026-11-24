@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify Email — CivicFix Bengaluru</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+    <header class="site-nav">
+        <div class="nav-brand">
+            <div class="brand-logo">🏙️</div>
+            <div>
+                <h1>CivicFix Bengaluru</h1>
+                <p>Municipal Grievance Redressal</p>
+            </div>
+        </div>
+        <div class="nav-user">
+            <a href="/" class="btn-nav-secondary">← Back to Home</a>
+        </div>
+    </header>
+
+    <div class="otp-page">
+        <div class="otp-card">
+
+            <div class="otp-icon-wrap">
+                ✉️
+            </div>
+
+            <div class="auth-header" style="margin-bottom:14px;">
+                <h1>Verify Your Email</h1>
+                <p>Enter the 6-digit verification code sent to:</p>
+            </div>
+
+            <div class="otp-email-chip">
+                {{ email }}
+            </div>
+
+            {% if error %}
+                <div class="alert-flash alert-danger">
+                    <span>⚠️</span>
+                    <span>{{ error }}</span>
+                </div>
+            {% endif %}
+
+            {% if message %}
+                <div class="alert-flash alert-success">
+                    <span>✓</span>
+                    <span>{{ message }}</span>
+                </div>
+            {% endif %}
+
+            <form method="POST" action="/verify-otp" id="otpForm">
+                <input type="hidden" name="email" value="{{ email }}">
+
+                <label for="otp" style="font-size:13px; font-weight:700; color:var(--text-muted); display:block; text-transform:uppercase; letter-spacing:0.5px;">
+                    6-Digit Verification Code
+                </label>
+
+                <input
+                    type="text"
+                    id="otp"
+                    name="otp"
+                    class="otp-input-field"
+                    inputmode="numeric"
+                    maxlength="6"
+                    placeholder="000000"
+                    pattern="[0-9]{6}"
+                    autocomplete="one-time-code"
+                    autofocus
+                    required
+                >
+
+                <div style="font-size:13px; color:var(--text-muted); margin-bottom:16px;">
+                    ⏱️ Code expires in: <strong id="timerDisplay" style="color:var(--primary);">05:00</strong>
+                </div>
+
+                <button type="submit" class="btn-primary" style="margin-top:0;">
+                    Verify & Activate Account
+                </button>
+            </form>
+
+            <div class="otp-actions" style="margin-top:20px;">
+                <form method="POST" action="/resend-otp" id="resendForm">
+                    <input type="hidden" name="email" value="{{ email }}">
+                    <button type="submit" class="btn-resend" id="btnResend">
+                        🔄 Resend Verification Code
+                    </button>
+                </form>
+
+                <div class="auth-footer" style="margin-top:14px;">
+                    Entered the wrong email?
+                    <a href="/citizen-register">Register Again</a>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <footer class="site-footer">
+        © 2026 CivicFix Bengaluru. Official Municipal Civic Redressal Portal.
+    </footer>
+
+    <script>
+        // Restrict input to digits only
+        const otpInput = document.getElementById("otp");
+        otpInput.addEventListener("input", function() {
+            this.value = this.value.replace(/[^0-9]/g, '');
+            if (this.value.length === 6) {
+                // Auto submit when 6 digits are typed
+                // document.getElementById("otpForm").submit();
+            }
+        });
+
+        // 5-minute countdown timer
+        let timeLeft = 300;
+        const timerDisplay = document.getElementById("timerDisplay");
+        const btnResend = document.getElementById("btnResend");
+
+        const countdown = setInterval(function() {
+            timeLeft--;
+            if (timeLeft <= 0) {
+                clearInterval(countdown);
+                timerDisplay.textContent = "Expired";
+                timerDisplay.style.color = "var(--danger)";
+            } else {
+                const minutes = Math.floor(timeLeft / 60);
+                const seconds = timeLeft % 60;
+                timerDisplay.textContent = 
+                    (minutes < 10 ? "0" : "") + minutes + ":" + 
+                    (seconds < 10 ? "0" : "") + seconds;
+            }
+        }, 1000);
+    </script>
+
+</body>
+</html>

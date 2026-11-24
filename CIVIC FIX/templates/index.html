@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CivicFix — Report and resolve civic issues</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="home-page-body">
+
+    <!-- Header Navigation -->
+    <header class="site-nav site-nav-home">
+        <div class="nav-brand">
+            <span class="logo-badge">CF</span>
+            <span class="brand-text">CivicFix</span>
+        </div>
+        <div class="nav-user">
+            <a href="/citizen-login" class="btn-nav-secondary">Sign In</a>
+            <a href="/citizen-register" class="btn-nav-primary">Register</a>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="hero-section">
+        <div class="hero-container">
+            <div class="hero-content">
+                <div class="hero-badge">CIVIC COMPLAINT MANAGEMENT</div>
+                <h1 class="hero-title">Every pothole, drain and pile of garbage — reported, routed, resolved.</h1>
+                <p class="hero-desc">
+                    CivicFix connects citizens, municipal admins and department crews with one shared record and photo proof at every step.
+                </p>
+                <div class="hero-actions">
+                    <a href="/citizen-register" class="btn-hero-action">Report an issue →</a>
+                </div>
+            </div>
+            <div class="hero-media">
+                <img src="{{ url_for('static', filename='images/hero-worker.jpg') }}" alt="Municipal road crew repairing pothole" class="hero-photo">
+            </div>
+        </div>
+    </section>
+
+    <!-- Three User Portals Grid -->
+    <main>
+        <div class="portal-grid">
+
+            <!-- Citizen Portal Card -->
+            <div class="portal-card">
+                <div>
+                    <div class="portal-icon-svg">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0d766e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="12" cy="7" r="4"></circle>
+                        </svg>
+                    </div>
+                    <h3>Citizen portal</h3>
+                    <p>Report a problem with a photo and track it until it's fixed.</p>
+                </div>
+                <div>
+                    <a href="/citizen-login" class="portal-link-styled">
+                        Sign in →
+                    </a>
+                </div>
+            </div>
+
+            <!-- Admin Portal Card -->
+            <div class="portal-card">
+                <div>
+                    <div class="portal-icon-svg">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0d766e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                        </svg>
+                    </div>
+                    <h3>Admin portal</h3>
+                    <p>Review AI suggestions, assign departments, verify completion proof.</p>
+                </div>
+                <div>
+                    <a href="/admin-login" class="portal-link-styled">
+                        Sign in →
+                    </a>
+                </div>
+            </div>
+
+            <!-- Department Portal Card -->
+            <div class="portal-card">
+                <div>
+                    <div class="portal-icon-svg">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0d766e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect>
+                            <path d="M9 22v-4h6v4"></path>
+                            <path d="M8 6h.01"></path>
+                            <path d="M16 6h.01"></path>
+                            <path d="M8 10h.01"></path>
+                            <path d="M16 10h.01"></path>
+                            <path d="M8 14h.01"></path>
+                            <path d="M16 14h.01"></path>
+                        </svg>
+                    </div>
+                    <h3>Department portal</h3>
+                    <p>See approved work for your team, start jobs and upload proof.</p>
+                </div>
+                <div>
+                    <a href="/department-login" class="portal-link-styled">
+                        Sign in →
+                    </a>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- How a Complaint Moves (5 Steps) -->
+        <section class="lifecycle-section">
+            <div class="lifecycle-container">
+                <h2 class="lifecycle-heading">How a complaint moves</h2>
+                <div class="lifecycle-steps-grid">
+                    <div class="step-card">
+                        <span class="step-badge">01</span>
+                        <div class="step-title">Citizen reports</div>
+                    </div>
+                    <div class="step-card">
+                        <span class="step-badge">02</span>
+                        <div class="step-title">AI suggests routing</div>
+                    </div>
+                    <div class="step-card">
+                        <span class="step-badge">03</span>
+                        <div class="step-title">Admin approves</div>
+                    </div>
+                    <div class="step-card">
+                        <span class="step-badge">04</span>
+                        <div class="step-title">Department fixes</div>
+                    </div>
+                    <div class="step-card">
+                        <span class="step-badge">05</span>
+                        <div class="step-title">Admin verifies proof</div>
+                    </div>
+                </div>
+                <p class="lifecycle-footnote">
+                    Departments covered: Roadside Engineering, Stormwater & Drains, Solid Waste Management.
+                </p>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="site-footer">
+        © 2026 CivicFix Bengaluru. Official Municipal Civic Redressal Portal.
+    </footer>
+
+</body>
+</html>
