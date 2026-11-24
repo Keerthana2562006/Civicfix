@@ -2,3 +2,7 @@
 __pycache__/
 *.pyc
 app.py.bak
+check_creds.py
+check_dept_passwords.py
+test_admin_login.py
+uploads/

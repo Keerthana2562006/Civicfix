@@ -86,15 +86,19 @@ DEPARTMENT_MAP = {
 }
 
 
+
 def get_db_connection():
     return mysql.connector.connect(
         host=os.getenv("MYSQL_HOST", "127.0.0.1"),
         port=int(os.getenv("MYSQL_PORT", 3306)),
         user=os.getenv("MYSQL_USER", "civicfix_app"),
-        password=os.getenv("MYSQL_PASSWORD", "CivicFix@2026"),
-        database=os.getenv("MYSQL_DATABASE", "civicfix_friendcopy"),
+        password=os.getenv("MYSQL_PASSWORD", "civicfix_app"),
+        database=os.getenv("MYSQL_DATABASE", "civicfix"),
+        ssl_ca=os.getenv("MYSQL_SSL_CA", "isrgrootx1.pem"),
+        ssl_verify_cert=True,
         autocommit=False,
     )
+
 
 
 def allowed_file(filename):
