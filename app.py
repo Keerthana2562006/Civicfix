@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from flask import (
     Flask,
     flash,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -18,6 +19,7 @@ from flask import (
     session,
     url_for,
 )
+from flask_cors import CORS
 import mysql.connector
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
@@ -34,6 +36,9 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "civicfix-production-secret-key-2026-secure")
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024  # 5 MB max upload
+
+# Allow Cross-Origin Resource Sharing for Vercel and modern frontends
+CORS(app, supports_credentials=True, resources={r"/*": {"origins": "*"}})
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
@@ -159,6 +164,16 @@ def serve_upload(filename):
 @app.route("/")
 def home():
     return render_template("index.html")
+
+
+@app.route("/api/health", methods=["GET"])
+def api_health():
+    """Healthcheck endpoint for Vercel and monitoring services."""
+    return jsonify({
+        "status": "online",
+        "service": "CivicFix Backend API",
+        "cors_enabled": True
+    }), 200
 
 
 @app.route("/test-db")
